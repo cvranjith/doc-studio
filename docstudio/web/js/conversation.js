@@ -1,0 +1,173 @@
+import { api } from "./api.js";
+import { el, clear, toast } from "./util.js";
+
+export function renderConversationPane(pane, ctx) {
+  clear(pane);
+
+  const log = el("div", { class: "conversation-log" });
+  pane.appendChild(log);
+  ctx.conversationLog = log;
+
+  const scopeSelect = el(
+    "select",
+    {},
+    [el("option", { value: "document", text: "Document" })].concat(
+      ctx.manifest.chapters
+        .filter((c) => !c.derived)
+        .map((c) => el("option", { value: c.file, text: c.title }))
+    )
+  );
+
+  const textarea = el("textarea", { placeholder: "Instruction, e.g. “Draft the document”, “Generate outline”…" });
+  const sendBtn = el("button", { class: "primary", text: "Send" });
+  const interviewBtn = el("button", {
+    text: "Interview me",
+    title: "Walk through the doc-type's clarification questions one at a time",
+    onclick: () => runInstruction(ctx, "Interview me", "document"),
+  });
+
+  const box = el("div", { class: "instruct-box" }, [
+    el("div", { class: "scope-row" }, [scopeSelect]),
+    textarea,
+    el("div", { class: "send-row" }, [interviewBtn, sendBtn]),
+    el("div", {
+      class: "empty-hint",
+      style: "margin-top:6px;",
+      text: 'Tip: natural-language chapter edits (e.g. "insert a chapter about X after Scope") are a planned reasoning-engine capability, not wired up in this mock — use + Add Chapter in the Chapters tab for now.',
+    }),
+  ]);
+  pane.appendChild(box);
+
+  sendBtn.addEventListener("click", async () => {
+    const instruction = textarea.value.trim();
+    if (!instruction) return;
+    textarea.value = "";
+    await runInstruction(ctx, instruction, scopeSelect.value);
+  });
+
+  ctx.setScope = (file) => {
+    scopeSelect.value = file;
+  };
+  ctx.focusInstructBox = () => textarea.focus();
+}
+
+function addLogEntry(ctx, cls, text) {
+  if (!ctx.conversationLog) return;
+  ctx.conversationLog.appendChild(el("div", { class: `msg ${cls}`, text }));
+  ctx.conversationLog.scrollTop = ctx.conversationLog.scrollHeight;
+}
+
+export async function runInstruction(ctx, instruction, scope) {
+  addLogEntry(ctx, "user", instruction);
+  const checked = Array.from(ctx.checkedSourceIds || []);
+
+  try {
+    await api.instruct(ctx.slug, { instruction, scope, checked_source_ids: checked }, (event) =>
+      handleEvent(ctx, event, instruction, scope)
+    );
+  } catch (e) {
+    toast(e.message, true);
+    addLogEntry(ctx, "log", "Error: " + e.message);
+  }
+}
+
+function handleEvent(ctx, event, instruction, scope) {
+  const handlers = ctx.chapterHandlers;
+  switch (event.type) {
+    case "chapter_delta": {
+      const h = handlers.get(event.chapter);
+      if (h) h.onDelta(event.text_chunk);
+      break;
+    }
+    case "chapter_complete": {
+      const h = handlers.get(event.chapter);
+      if (h) h.onComplete(event.full_markdown);
+      break;
+    }
+    case "manifest_update": {
+      const h = event.chapter && handlers.get(event.chapter);
+      if (h && event.status) h.setStatus(event.status);
+      break;
+    }
+    case "clarification":
+      renderClarificationCard(ctx, event, instruction, scope);
+      break;
+    case "log":
+      addLogEntry(ctx, "log", event.message);
+      break;
+    case "done":
+      ctx.refreshManifest();
+      break;
+  }
+}
+
+function renderClarificationCard(ctx, clarification, originalInstruction, scope) {
+  const card = el("div", { class: "clarify-card" });
+  card.appendChild(el("div", { class: "reason", text: clarification.reason || "Clarification needed" }));
+  card.appendChild(el("div", { class: "question", text: clarification.question }));
+
+  let selectedChoice = null;
+  const freeText = el("input", { type: "text", placeholder: "Free-text answer…" });
+
+  if (clarification.choices && clarification.choices.length) {
+    const choicesRow = el("div", { class: "choices" });
+    for (const choice of clarification.choices) {
+      const chip = el("span", { class: "chip", text: choice });
+      chip.addEventListener("click", () => {
+        selectedChoice = choice;
+        freeText.value = choice;
+        card.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
+        chip.classList.add("selected");
+      });
+      choicesRow.appendChild(chip);
+    }
+    card.appendChild(choicesRow);
+  }
+
+  card.appendChild(el("div", { class: "free-text" }, [freeText]));
+
+  const answerBtn = el("button", {
+    class: "primary small",
+    text: "Answer",
+    onclick: async () => {
+      const answer = freeText.value.trim();
+      if (!answer) {
+        toast("Enter or pick an answer first", true);
+        return;
+      }
+      await submitClarification(ctx, clarification, answer, false, originalInstruction, scope);
+      card.remove();
+    },
+  });
+  const deferBtn = el("button", {
+    class: "small",
+    text: "Defer",
+    onclick: async () => {
+      await submitClarification(ctx, clarification, null, true, originalInstruction, scope);
+      card.remove();
+    },
+  });
+
+  card.appendChild(el("div", { class: "buttons" }, [deferBtn, answerBtn]));
+  ctx.conversationLog.appendChild(card);
+  ctx.conversationLog.scrollTop = ctx.conversationLog.scrollHeight;
+}
+
+async function submitClarification(ctx, clarification, answer, defer, originalInstruction, scope) {
+  try {
+    await api.clarify(ctx.slug, {
+      question_id: clarification.question_id,
+      question: clarification.question,
+      chapter: clarification.blocking_chapter,
+      reason: clarification.reason,
+      answer,
+      defer,
+    });
+    addLogEntry(ctx, "log", defer ? "Deferred — marked as an open question." : `Answered: ${answer}`);
+    await ctx.refreshManifest();
+    // Resume the paused instruction so drafting continues past this chapter.
+    await runInstruction(ctx, originalInstruction, scope);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}

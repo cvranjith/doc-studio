@@ -1,0 +1,6 @@
+# Document Studio — app-level config.
+# Points at a workspace root. Everything else (including the workspace's own
+# config.yaml with knowledge_base_path) lives inside that workspace root.
+workspace_root: "./workspace"
+host: "127.0.0.1"
+port: 8077
