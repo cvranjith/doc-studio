@@ -22,9 +22,10 @@ def list_doc_types(request: Request):
 def get_doc_type(doc_type: str, request: Request):
     state = _state(request)
     try:
-        return state.templates.get_doc_type(doc_type).model_dump(mode="json")
+        tpl = state.templates.get_doc_type(doc_type)
     except FileNotFoundError:
         raise HTTPException(404, "unknown doc type")
+    return {**tpl.model_dump(mode="json"), "template_variables": state.templates.get_template_variables(doc_type)}
 
 
 class SaveDocTypeBody(BaseModel):
@@ -52,7 +53,7 @@ async def attach_doc_type_word_template(doc_type: str, request: Request, file: U
         tpl = state.templates.attach_word_template(doc_type, file.filename or "template.docx", data)
     except FileNotFoundError:
         raise HTTPException(404, "unknown doc type")
-    return tpl.model_dump(mode="json")
+    return {**tpl.model_dump(mode="json"), "template_variables": state.templates.get_template_variables(doc_type)}
 
 
 @router.get("/templates/word")

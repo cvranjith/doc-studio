@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from docstudio.formatter.templated import SYSTEM_VARIABLES
 from docstudio.models import BuildOptions, BuildRecord
 from docstudio.store.documents import DocumentNotFound
 
@@ -38,11 +39,16 @@ def export_document(slug: str, body: ExportBody, request: Request):
 
     non_final = [c.title for c in manifest.chapters if c.status != "final"]
     open_questions = manifest.total_open_questions
+    template_variables = [v for v in state.templates.get_template_variables(manifest.doc_type) if v not in SYSTEM_VARIABLES]
+    unfilled_variables = [v for v in template_variables if not manifest.variables.get(v)]
+
     warnings = []
     if non_final:
         warnings.append(f"{len(non_final)} chapter(s) not marked final: {', '.join(non_final)}")
     if open_questions:
         warnings.append(f"{open_questions} open question(s) across chapters")
+    if unfilled_variables:
+        warnings.append(f"{len(unfilled_variables)} template variable(s) not filled in: {', '.join(unfilled_variables)}")
 
     if warnings and not body.confirm:
         return {

@@ -1,11 +1,16 @@
 """DocFormatter interface (requirements.md §8).
 
-A real implementation will concatenate chapters in manifest order, render
-Mermaid blocks to images, embed assets/ images, render embed-mode sources as
-tables, and inject into the corporate Word template's placeholders. To drop
-one in: implement ``DocFormatter.build`` below and register it in
-``docstudio/api/__init__.py::AppState`` in place of ``MockDocFormatter``.
-Nothing else changes — the export API and UI only depend on this interface.
+``TemplatedDocFormatter`` (docstudio/formatter/templated.py) is a real,
+working implementation: it injects chapters at a ``{CHAPTERS}`` marker in
+the doc type's attached Word template using the template's own named
+styles, fills in ``{VARIABLE}`` tokens, and strips an optional
+``##STYLES_START##``/``##STYLES_END##`` style-reference block. It does not
+yet render Mermaid diagrams to images or embed-mode source tables — those
+remain future work. To replace it with a different implementation:
+implement ``DocFormatter.build`` and register it in
+``docstudio/api/__init__.py::AppState`` in place of
+``TemplatedDocFormatter``. Nothing else changes — the export API and UI
+only depend on this interface.
 """
 from __future__ import annotations
 

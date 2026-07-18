@@ -6,8 +6,10 @@ documents chapter-by-chapter as markdown, the consultant iterates per
 chapter, and the result exports to a corporate Word template and/or
 publishes as flat markdown into an ANTiRAG knowledge base.
 
-This is a prototype: the AI reasoning engine and the Word formatter are
-mocked behind clean interfaces (see below). Everything else — UI, API,
+This is a prototype: the AI reasoning engine is mocked behind a clean
+interface (see below). The Word formatter started the same way but is now a
+real, working implementation — it templates the actual `.docx` attached to
+each document type rather than producing a stub. Everything else — UI, API,
 file/folder management, versioning, ingestion, the drafting state machine —
 is real.
 
@@ -39,11 +41,14 @@ docstudio/
   models.py               pydantic models: manifest, chapters, doc-type
                            templates, ReasoningEngine request/event types
   engine/                 ReasoningEngine interface + MockReasoningEngine
-  formatter/               DocFormatter interface + MockDocFormatter
+  formatter/               DocFormatter interface + TemplatedDocFormatter
+                            (real: fills {CHAPTERS}/{VARIABLE}s into the
+                            attached .docx — see below)
   ingest/                  pdf/docx/xlsx/csv/txt -> markdown extraction
   store/                   filesystem-backed persistence
     documents.py             DocumentStore: doc.yaml + chapters CRUD
-    templates.py             doc-type template parser + word template registry
+    templates.py             doc-type template parser + word template
+                              registry + {VARIABLE} scanning
     versions.py              VersionStore: folder-snapshot versioning
     publisher.py             Publisher: copy-to-knowledge-base
     seed.py                  first-run seeding
@@ -64,7 +69,7 @@ The frontend is plain HTML/CSS/JS (ES modules), served by FastAPI as static
 files, so it runs fully offline in corporate environments. There is no
 build step.
 
-## The two mock interfaces
+## The reasoning engine (mocked) and the Word formatter (real)
 
 ### ReasoningEngine (`docstudio/engine/__init__.py`)
 
@@ -100,19 +105,55 @@ class DocFormatter(Protocol):
     def build(self, document_dir: Path, word_template: Path, options: BuildOptions) -> Path: ...
 ```
 
-`MockDocFormatter` (`docstudio/formatter/mock.py`) produces a plausible
-stub `.docx` via `python-docx`: a title page (with a DRAFT watermark
-paragraph when `options.force_draft_watermark` is set) followed by each
-chapter's raw markdown converted to headings/bullets/paragraphs. Validation
-(chapters not `final`, open questions > 0) happens in
-`docstudio/api/export.py` before `build()` is called, which offers an
-"export as DRAFT" path with the watermark flag.
+Unlike the reasoning engine, this is a **real, working implementation** —
+`TemplatedDocFormatter` (`docstudio/formatter/templated.py`) — built against
+a convention found on an actual corporate FSD template supplied for this
+project:
 
-**To replace with a real formatter:** implement `DocFormatter.build` to
-concatenate chapters in manifest order, render Mermaid blocks to images,
-embed `assets/` images, render `embed`-mode sources as tables, and inject
-into the corporate template's named placeholders — then swap
-`MockDocFormatter()` for the real implementation in `AppState`.
+- A body paragraph containing exactly `{CHAPTERS}` marks where drafted
+  chapter content is inserted, converted from markdown (headings, bullets,
+  blockquotes, tables) into native docx elements styled with the
+  template's *own* named styles (`Heading 1`-`9`, `Normal`, and whatever
+  table style is demonstrated in the block below) — so generated content
+  looks native to the template, not bolted on.
+- `{VARIABLE}` tokens (ALL_CAPS convention — `{DOCUMENT_NAME}`,
+  `{PROJECT_ID}`, etc.) anywhere in the document — body, tables, nested
+  tables, headers, footers — are filled in from `DocManifest.variables`.
+  Tokens can be split across multiple XML runs in the source `.docx` (a
+  real Word artifact, not a hypothetical); substitution handles that by
+  rewriting the paragraph's runs, not just searching each run in isolation.
+  `CREATION_ON` and `DOC_NAME` are computed automatically (creation date,
+  export filename) rather than asked of the user — see
+  `SYSTEM_VARIABLES` in `templated.py` (mirrored in the frontend as
+  `SYSTEM_TEMPLATE_VARIABLES` in `docstudio/web/js/util.js`). A lowercase
+  `{yyyy}` token, if present, is always replaced with the current year.
+- An optional `##STYLES_START##` / `##STYLES_END##` block — a
+  style-reference cheat sheet for whoever built the template, demonstrating
+  which named heading/table styles to use — is stripped from the delivered
+  document if present.
+- Sets Word's "update fields on open" flag so a stale Table of Contents
+  recalculates page numbers the moment the file is opened (this prototype
+  has no layout engine to compute real page numbers itself).
+
+`docstudio/store/templates.py::scan_template_variables` scans a `.docx` for
+distinct `{VARIABLE}` tokens (excluding `{CHAPTERS}`) — this powers both the
+New Document wizard's variables step and the document view's **Variables**
+button, both of which build a fill-in-the-blanks form from whatever the
+attached template actually contains, live, not a hardcoded list. The seeded
+`corporate-default.docx` is deliberately a minimal *working* example of
+this convention (not just descriptive text) so a fresh clone demonstrates
+the real mechanism without needing a real corporate template attached.
+
+Validation (chapters not `final`, open questions > 0, unfilled template
+variables) happens in `docstudio/api/export.py` before `build()` is
+called, which offers an "export as DRAFT" path with the watermark flag.
+
+**Known gaps:** no Mermaid-to-image rendering, no `embed`-mode source
+tables yet, and only the first `{CHAPTERS}` match / first `##STYLES##`
+block are handled (multiple templates with different structure would need
+generalizing this). Swapping in a different implementation entirely: same
+pattern as the engine — implement `DocFormatter.build` and register it in
+`AppState` in place of `TemplatedDocFormatter`.
 
 ## Filesystem contract
 
@@ -194,11 +235,13 @@ explicitly, independent of drafting.
 
 See `docstudio/api/*.py`; routes closely follow the sketch in
 `requirements.md` §11, plus additions the UI needed that weren't in the
-original sketch: `PATCH /api/documents/{slug}` (editable title/status),
-`PATCH .../sources/{id}` (label/mode edits), `POST`/`DELETE`/`POST
+original sketch: `PATCH`/`DELETE /api/documents/{slug}` (editable
+title/status/variables, permanent delete-from-disk with a confirm step in
+the UI), `PATCH .../sources/{id}` (label/mode edits), `POST`/`DELETE`/`POST
 .../reorder` on `.../chapters` (add/delete/reorder), and `GET`/`PUT
 /api/templates/doc_types/{doc_type}` + `POST .../word_template` for the
-template editor.
+template editor (the `GET` also returns a live-scanned `template_variables`
+list, per the DocFormatter section above).
 
 ## Known prototype limitations
 

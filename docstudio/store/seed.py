@@ -12,6 +12,7 @@ from docx import Document as DocxDocument
 
 from docstudio import ingest
 from docstudio.engine.mock import _ACRONYM_DEFS
+from docstudio.formatter.templated import STYLES_END_MARKER, STYLES_START_MARKER
 from docstudio.models import ChapterFrontmatter, ChapterSpec, DocTypeTemplate, InterviewQuestion, SourceRef
 from docstudio.store.templates import render_doc_type_template
 
@@ -241,13 +242,36 @@ def _approach_doc_template() -> DocTypeTemplate:
 # ---------------------------------------------------------------------------
 
 def _seed_word_template(templates) -> None:
+    """A minimal but genuinely functional example of the {VARIABLE} /
+    {CHAPTERS} / ##STYLES## convention TemplatedDocFormatter understands —
+    not just descriptive prose. Attach a real corporate .docx from the
+    Templates tab to replace it; this just makes the out-of-the-box export
+    demonstrate the real mechanism instead of doing nothing.
+    """
     doc = DocxDocument()
-    doc.add_heading("Corporate Default Template", level=1)
+    doc.add_heading("{DOCUMENT_TITLE}", level=0)
+    doc.add_paragraph("Prepared for: {CLIENT_NAME}")
+    doc.add_paragraph("Author: {AUTHOR_NAME}")
     doc.add_paragraph(
-        "Placeholder corporate Word template for the Document Studio prototype. "
-        "A real DocFormatter implementation would inject content into named "
-        "placeholders here (e.g. {{TITLE}}, {{CLIENT}}, {{DATE}}, {{BODY}})."
+        "This is the seeded placeholder corporate Word template — attach your "
+        "own .docx from the Templates tab to replace it."
     )
+    doc.add_heading("Document Chapters", level=1)
+    doc.add_paragraph("{CHAPTERS}")
+
+    doc.add_paragraph(STYLES_START_MARKER)
+    doc.add_heading("HEADING", level=1)
+    doc.add_heading("HEADING2", level=2)
+    doc.add_heading("HEADING3", level=3)
+    doc.add_paragraph("Normal")
+    table = doc.add_table(rows=2, cols=2)
+    table.style = "Table Grid"
+    table.rows[0].cells[0].text = "Header"
+    table.rows[0].cells[1].text = "Header"
+    table.rows[1].cells[0].text = "Cell"
+    table.rows[1].cells[1].text = "Cell"
+    doc.add_paragraph(STYLES_END_MARKER)
+
     dest = templates.workspace.word_templates / "corporate-default.docx"
     dest.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dest))

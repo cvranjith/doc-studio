@@ -64,6 +64,7 @@ class DocManifest(BaseModel):
     sources: list[SourceRef] = Field(default_factory=list)
     builds: list[BuildRecord] = Field(default_factory=list)
     published: PublishedInfo = Field(default_factory=PublishedInfo)
+    variables: dict[str, str] = Field(default_factory=dict)  # word-template {VARIABLE} values
 
     @property
     def total_open_questions(self) -> int:

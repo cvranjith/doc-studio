@@ -108,6 +108,68 @@ def render_doc_type_template(tpl: DocTypeTemplate) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Word template {VARIABLE} scanning
+# ---------------------------------------------------------------------------
+
+# ALL_CAPS convention only — excludes decorative/lowercase tokens like the
+# copyright-year "{yyyy}" some corporate footers carry, which formatter code
+# substitutes automatically rather than surfacing as a document variable.
+VARIABLE_PATTERN = re.compile(r"\{\s*([A-Z][A-Z0-9_]*)\s*\}")
+CHAPTERS_MARKER = "CHAPTERS"
+
+
+def _iter_paragraphs(container):
+    """Recursively yield every paragraph in a document/cell/header/footer,
+    including nested tables inside table cells.
+    """
+    yield from container.paragraphs
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                yield from _iter_paragraphs(cell)
+
+
+def _iter_containers(document):
+    """All paragraph-bearing parts of a document: the body plus every
+    section's headers/footers (first-page and even-page variants included).
+    """
+    yield document
+    for section in document.sections:
+        for part in (
+            section.header,
+            section.footer,
+            section.first_page_header,
+            section.first_page_footer,
+            section.even_page_header,
+            section.even_page_footer,
+        ):
+            try:
+                part.paragraphs  # noqa: B018 - probes whether the part is usable
+            except Exception:
+                continue
+            yield part
+
+
+def scan_template_variables(docx_path: Path) -> list[str]:
+    """Distinct {VARIABLE} tokens used anywhere in a .docx (body, tables,
+    nested tables, headers, footers) — used both to build the "fill these in"
+    form and, symmetrically, at export time to know what to substitute.
+    """
+    if not docx_path.exists():
+        return []
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument(str(docx_path))
+    found: set[str] = set()
+    for container in _iter_containers(doc):
+        for p in _iter_paragraphs(container):
+            for m in VARIABLE_PATTERN.finditer(p.text):
+                found.add(m.group(1))
+    found.discard(CHAPTERS_MARKER)
+    return sorted(found)
+
+
 class TemplateRegistry:
     def __init__(self, workspace: WorkspacePaths):
         self.workspace = workspace
@@ -153,3 +215,13 @@ class TemplateRegistry:
         tpl.word_template = saved_name
         self.save_doc_type(tpl)
         return tpl
+
+    def get_template_variables(self, doc_type: str) -> list[str]:
+        """Distinct {VARIABLE} tokens in the doc type's attached word
+        template. Scanned live (not cached) so it always reflects whatever
+        file is currently attached.
+        """
+        tpl = self.get_doc_type(doc_type)
+        if not tpl.word_template:
+            return []
+        return scan_template_variables(self.word_template_path(tpl.word_template))

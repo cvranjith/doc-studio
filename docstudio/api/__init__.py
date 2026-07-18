@@ -12,7 +12,7 @@ from docstudio.store.templates import TemplateRegistry
 from docstudio.store.versions import FolderSnapshotVersionStore
 from docstudio.store.publisher import FilesystemPublisher
 from docstudio.engine.mock import MockReasoningEngine
-from docstudio.formatter.mock import MockDocFormatter
+from docstudio.formatter.templated import TemplatedDocFormatter
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -27,7 +27,7 @@ class AppState:
         self.versions = FolderSnapshotVersionStore(self.documents)
         self.publisher = FilesystemPublisher(settings)
         self.engine = MockReasoningEngine()
-        self.formatter = MockDocFormatter()
+        self.formatter = TemplatedDocFormatter()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

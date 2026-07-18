@@ -53,3 +53,18 @@ export function fmtDate(iso) {
 export function statusBadge(status) {
   return el("span", { class: `badge status-${status}`, text: status });
 }
+
+// Word-template {VARIABLE} tokens computed automatically at export time
+// (creation date, export filename) — never shown in a fill-in form.
+// Mirrors docstudio/formatter/templated.py::SYSTEM_VARIABLES.
+export const SYSTEM_TEMPLATE_VARIABLES = new Set(["CREATION_ON", "DOC_NAME"]);
+
+// Shared row-builder for a {VARIABLE} fill-in form, used by both the New
+// Document wizard and the document view's Variables popup.
+export function variableFields(names, values, inputs) {
+  return names.map((name) => {
+    const input = el("input", { type: "text", value: values[name] || "" });
+    inputs[name] = input;
+    return el("div", { class: "field" }, [el("label", { text: name }), input]);
+  });
+}

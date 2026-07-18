@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast } from "./util.js";
+import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, SYSTEM_TEMPLATE_VARIABLES, variableFields } from "./util.js";
 
 export async function renderHome(container, hash) {
   const tab = hash === "/templates" ? "templates" : "documents";
@@ -62,16 +62,31 @@ async function renderDocumentsGrid(host) {
   }
   const grid = el("div", { class: "doc-grid" });
   for (const doc of docs) {
-    grid.appendChild(documentCard(doc));
+    grid.appendChild(documentCard(doc, () => renderDocumentsGrid(host)));
   }
   host.appendChild(grid);
 }
 
-function documentCard(doc) {
+function documentCard(doc, onDeleted) {
   const badges = [statusBadge(doc.status)];
   if (doc.open_questions) {
     badges.push(el("span", { class: "badge oq", text: `${doc.open_questions} open question${doc.open_questions > 1 ? "s" : ""}` }));
   }
+  const deleteBtn = el("button", {
+    class: "small danger",
+    text: "Delete",
+    onclick: async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Delete "${doc.title}"? This permanently removes it and all its chapters, sources, and versions from disk. This cannot be undone.`)) return;
+      try {
+        await api.deleteDocument(doc.slug);
+        toast(`Deleted "${doc.title}"`);
+        await onDeleted();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    },
+  });
   return el("div", { class: "doc-card", onclick: () => (location.hash = `#/doc/${encodeURIComponent(doc.slug)}`) }, [
     el("div", { class: "doc-title", text: doc.title }),
     el("div", { class: "doc-meta" }, [
@@ -80,6 +95,7 @@ function documentCard(doc) {
       el("span", { text: `v${doc.current_version}` }),
     ]),
     el("div", { class: "doc-badges" }, badges),
+    el("div", { class: "doc-card-actions" }, [deleteBtn]),
   ]);
 }
 
@@ -112,23 +128,27 @@ async function renderTemplatesGrid(host) {
   host.appendChild(wtGrid);
 }
 
-// Three-step wizard: 1) title/type (creates the document immediately so
-// steps 2-3 have a slug to attach to), 2) optional source uploads,
-// 3) optional initial instruction. Every step after the first can be
-// skipped — whatever's skipped is just finished later in the document
-// editor, since the document already exists from step 1 onward.
+// Four-step wizard: 1) title/type (creates the document immediately so
+// later steps have a slug to attach to), 2) word-template {VARIABLE}
+// values (skipped automatically if the doc type's template has none),
+// 3) optional source uploads, 4) optional initial instruction. Every step
+// after the first can be skipped — whatever's skipped is just finished
+// later in the document editor, since the document already exists from
+// step 1 onward.
 async function openNewDocumentWizard() {
   const docTypes = await api.listDocTypes();
   let step = 1;
   let slug = null;
+  let selectedDocType = docTypes[0] && docTypes[0].doc_type;
   const uploadedSources = [];
+  const variableValues = {};
 
   const body = el("div", {});
   const content = el("div", {}, [el("h3", { text: "New Document" }), body]);
   openModal(content, { wide: true });
 
   function wizardProgress(current) {
-    const labels = ["1. Details", "2. Sources", "3. Initial Instruction"];
+    const labels = ["1. Details", "2. Variables", "3. Sources", "4. Initial Instruction"];
     return el(
       "div",
       { class: "wizard-steps" },
@@ -138,14 +158,23 @@ async function openNewDocumentWizard() {
     );
   }
 
-  function renderStep() {
+  // Loops so a step can "skip itself" (e.g. no variables to fill in) by
+  // bumping `step` and returning null, without recursive render calls.
+  async function renderStep() {
     clear(body);
-    if (step === 1) body.appendChild(stepDetails());
-    else if (step === 2) body.appendChild(stepSources());
-    else body.appendChild(stepInstruction());
+    body.appendChild(el("div", { class: "empty-hint", text: "Loading…" }));
+    let node = null;
+    while (!node) {
+      if (step === 1) node = await stepDetails();
+      else if (step === 2) node = await stepVariables();
+      else if (step === 3) node = await stepSources();
+      else node = await stepInstruction();
+    }
+    clear(body);
+    body.appendChild(node);
   }
 
-  function stepDetails() {
+  async function stepDetails() {
     const title = el("input", { type: "text", placeholder: "e.g. Payment Gateway FSD" });
     const select = el("select", {}, docTypes.map((t) => el("option", { value: t.doc_type, text: `${t.name} (${t.doc_type})` })));
     const nextBtn = el("button", {
@@ -160,6 +189,7 @@ async function openNewDocumentWizard() {
         try {
           const doc = await api.createDocument(title.value.trim(), select.value, "");
           slug = doc.slug;
+          selectedDocType = select.value;
           step = 2;
           renderStep();
         } catch (e) {
@@ -176,7 +206,46 @@ async function openNewDocumentWizard() {
     ]);
   }
 
-  function stepSources() {
+  async function stepVariables() {
+    const docType = await api.getDocType(selectedDocType);
+    const userVars = (docType.template_variables || []).filter((v) => !SYSTEM_TEMPLATE_VARIABLES.has(v));
+    if (!userVars.length) {
+      step = 3;
+      return null;
+    }
+
+    const inputs = {};
+    const fields = variableFields(userVars, variableValues, inputs);
+    const nextBtn = el("button", {
+      class: "primary",
+      text: "Next →",
+      onclick: async () => {
+        for (const name of userVars) variableValues[name] = inputs[name].value.trim();
+        try {
+          await api.updateDocument(slug, { variables: variableValues });
+        } catch (e) {
+          toast(e.message, true);
+        }
+        step = 3;
+        renderStep();
+      },
+    });
+
+    return el("div", {}, [
+      wizardProgress(2),
+      el("div", {
+        class: "empty-hint",
+        text: `These fill in {VARIABLE} placeholders in the "${docType.word_template}" Word template attached to this document type.`,
+      }),
+      ...fields,
+      el("div", { class: "buttons" }, [
+        el("button", { text: "← Back", onclick: () => { step = 1; renderStep(); } }),
+        nextBtn,
+      ]),
+    ]);
+  }
+
+  async function stepSources() {
     const list = el("div", {});
     const dropzone = el("div", { class: "dropzone" }, "Drag files here or click to upload — optional\n(pdf, docx, xlsx, csv, md, txt, png, jpg)");
     const fileInput = el("input", { type: "file", multiple: true, style: "display:none" });
@@ -193,7 +262,7 @@ async function openNewDocumentWizard() {
     });
     fileInput.addEventListener("change", () => handleFiles(fileInput.files));
 
-    const nextBtn = el("button", { class: "primary", text: "Skip →", onclick: () => { step = 3; renderStep(); } });
+    const nextBtn = el("button", { class: "primary", text: "Skip →", onclick: () => { step = 4; renderStep(); } });
 
     async function handleFiles(files) {
       for (const file of files) {
@@ -224,18 +293,18 @@ async function openNewDocumentWizard() {
     renderList();
 
     return el("div", {}, [
-      wizardProgress(2),
+      wizardProgress(3),
       dropzone,
       fileInput,
       list,
       el("div", { class: "buttons" }, [
-        el("button", { text: "← Back", onclick: () => { step = 1; renderStep(); } }),
+        el("button", { text: "← Back", onclick: () => { step = 2; renderStep(); } }),
         nextBtn,
       ]),
     ]);
   }
 
-  function stepInstruction() {
+  async function stepInstruction() {
     const instructionArea = el("textarea", {
       style: "min-height:120px;",
       placeholder: 'Optional: "Draft the document based on the uploaded sources, focusing on FAST and MEPS+ rails." Leave blank to start from an empty document.',
@@ -256,14 +325,14 @@ async function openNewDocumentWizard() {
       location.hash = `#/doc/${encodeURIComponent(slug)}`;
     });
     return el("div", {}, [
-      wizardProgress(3),
+      wizardProgress(4),
       el("div", { class: "field" }, [el("label", { text: "Initial instruction (optional)" }), instructionArea]),
       el("div", {
         class: "empty-hint",
         text: "This is sent as the first instruction once the document opens — the same as typing it into the Conversation panel yourself. It kicks off an agentic draft using whatever sources you uploaded.",
       }),
       el("div", { class: "buttons" }, [
-        el("button", { text: "← Back", onclick: () => { step = 2; renderStep(); } }),
+        el("button", { text: "← Back", onclick: () => { step = 3; renderStep(); } }),
         finishBtn,
       ]),
     ]);

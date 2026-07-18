@@ -43,6 +43,7 @@ class UpdateDocumentBody(BaseModel):
     client: str | None = None
     author: str | None = None
     status: str | None = None
+    variables: dict[str, str] | None = None  # word-template {VARIABLE} values; full replace
 
 
 @router.patch("/documents/{slug}")
@@ -56,6 +57,8 @@ def update_document(slug: str, payload: UpdateDocumentBody, request: Request):
         value = getattr(payload, field)
         if value is not None:
             setattr(manifest, field, value)
+    if payload.variables is not None:
+        manifest.variables = payload.variables
     state.documents.save_manifest(manifest)
     return manifest.model_dump(mode="json")
 
@@ -73,6 +76,15 @@ def get_document(slug: str, request: Request):
         "doc_type_template": doc_type.model_dump(mode="json"),
         "open_questions": manifest.total_open_questions,
     }
+
+
+@router.delete("/documents/{slug}")
+def delete_document(slug: str, request: Request):
+    state = _state(request)
+    if not state.documents.exists(slug):
+        raise HTTPException(404, "document not found")
+    state.documents.delete_document(slug)
+    return {"deleted": slug}
 
 
 @router.get("/documents/{slug}/chapters/{file}")

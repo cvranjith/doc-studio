@@ -27,6 +27,7 @@ export const api = {
   createDocument: (title, doc_type, client) => req("POST", "/documents", { title, doc_type, client }),
   getDocument: (slug) => req("GET", `/documents/${slug}`),
   updateDocument: (slug, payload) => req("PATCH", `/documents/${slug}`, payload),
+  deleteDocument: (slug) => req("DELETE", `/documents/${slug}`),
   getChapter: (slug, file) => req("GET", `/documents/${slug}/chapters/${file}`),
   saveChapter: (slug, file, payload) => req("PUT", `/documents/${slug}/chapters/${file}`, payload),
   addChapter: (slug, title, position) => req("POST", `/documents/${slug}/chapters`, { title, position }),

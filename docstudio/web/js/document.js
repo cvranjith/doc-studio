@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast } from "./util.js";
+import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, SYSTEM_TEMPLATE_VARIABLES, variableFields } from "./util.js";
 import { renderInto } from "./markdown.js";
 import { renderSourcesPane } from "./sources.js";
 import { renderConversationPane, runInstruction } from "./conversation.js";
@@ -192,11 +192,77 @@ function renderHeader(header, ctx) {
 
   const actions = el("div", { class: "actions" }, [
     el("button", { text: "Save Version", onclick: () => saveVersion(ctx) }),
+    el("button", { text: "Variables", onclick: () => openVariablesModal(ctx) }),
     el("button", { text: "Export to Word", onclick: () => openExportModal(ctx) }),
     el("button", { text: "Publish to Knowledge Base", onclick: () => publish(ctx) }),
     el("button", { text: "History", onclick: () => openHistoryModal(ctx) }),
+    el("button", { class: "danger", text: "Delete Document", onclick: () => deleteDocument(ctx) }),
   ]);
   header.appendChild(actions);
+}
+
+async function openVariablesModal(ctx) {
+  const docType = await api.getDocType(ctx.manifest.doc_type);
+  const userVars = (docType.template_variables || []).filter((v) => !SYSTEM_TEMPLATE_VARIABLES.has(v));
+
+  if (!userVars.length) {
+    openModal(
+      el("div", {}, [
+        el("h3", { text: "Word Template Variables" }),
+        el("div", {
+          class: "empty-hint",
+          text: docType.word_template
+            ? `The "${docType.word_template}" template attached to this document type has no {VARIABLE} placeholders to fill in.`
+            : "This document type has no Word template attached yet — attach one from the Templates tab first.",
+        }),
+        el("div", { class: "buttons" }, [el("button", { text: "Close", onclick: closeModal })]),
+      ])
+    );
+    return;
+  }
+
+  const inputs = {};
+  const fields = variableFields(userVars, ctx.manifest.variables || {}, inputs);
+
+  const content = el("div", {}, [
+    el("h3", { text: "Word Template Variables" }),
+    el("div", {
+      class: "empty-hint",
+      text: `Fills in {VARIABLE} placeholders in the "${docType.word_template}" template at export time.`,
+    }),
+    ...fields,
+    el("div", { class: "buttons" }, [
+      el("button", { text: "Cancel", onclick: closeModal }),
+      el("button", {
+        class: "primary",
+        text: "Save",
+        onclick: async () => {
+          const variables = { ...ctx.manifest.variables };
+          for (const name of userVars) variables[name] = inputs[name].value.trim();
+          try {
+            await api.updateDocument(ctx.slug, { variables });
+            ctx.manifest.variables = variables;
+            toast("Variables saved");
+            closeModal();
+          } catch (e) {
+            toast(e.message, true);
+          }
+        },
+      }),
+    ]),
+  ]);
+  openModal(content);
+}
+
+async function deleteDocument(ctx) {
+  if (!confirm(`Delete "${ctx.manifest.title}"? This permanently removes it and all its chapters, sources, and versions from disk. This cannot be undone.`)) return;
+  try {
+    await api.deleteDocument(ctx.slug);
+    toast(`Deleted "${ctx.manifest.title}"`);
+    location.hash = "#/";
+  } catch (e) {
+    toast(e.message, true);
+  }
 }
 
 function countOpenQuestions(manifest) {
