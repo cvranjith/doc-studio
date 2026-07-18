@@ -8,15 +8,16 @@ export function renderConversationPane(pane, ctx) {
   pane.appendChild(log);
   ctx.conversationLog = log;
 
-  const scopeSelect = el(
-    "select",
-    {},
-    [el("option", { value: "document", text: "Document" })].concat(
-      ctx.manifest.chapters
-        .filter((c) => !c.derived)
-        .map((c) => el("option", { value: c.file, text: c.title }))
-    )
-  );
+  const chapterOptions = ctx.manifest.chapters.filter((c) => !c.derived).map((c) => el("option", { value: c.file, text: c.title }));
+  const scopeSelect = el("select", {}, chapterOptions);
+  const generalCheckbox = el("input", { type: "checkbox", checked: true });
+  const scopeLabel = el("label", { class: "check general-check" }, [generalCheckbox, "General comment (not about a specific chapter)"]);
+
+  function syncScopeDisabled() {
+    scopeSelect.disabled = generalCheckbox.checked;
+  }
+  generalCheckbox.addEventListener("change", syncScopeDisabled);
+  syncScopeDisabled();
 
   const textarea = el("textarea", { placeholder: "Instruction, e.g. “Draft the document”, “Generate outline”…" });
   const sendBtn = el("button", { class: "primary", text: "Send" });
@@ -27,7 +28,7 @@ export function renderConversationPane(pane, ctx) {
   });
 
   const box = el("div", { class: "instruct-box" }, [
-    el("div", { class: "scope-row" }, [scopeSelect]),
+    el("div", { class: "scope-row" }, [scopeLabel, scopeSelect]),
     textarea,
     el("div", { class: "send-row" }, [interviewBtn, sendBtn]),
     el("div", {
@@ -42,11 +43,18 @@ export function renderConversationPane(pane, ctx) {
     const instruction = textarea.value.trim();
     if (!instruction) return;
     textarea.value = "";
-    await runInstruction(ctx, instruction, scopeSelect.value);
+    const scope = generalCheckbox.checked ? "document" : scopeSelect.value;
+    await runInstruction(ctx, instruction, scope);
   });
 
   ctx.setScope = (file) => {
-    scopeSelect.value = file;
+    if (file && file !== "document") {
+      generalCheckbox.checked = false;
+      scopeSelect.value = file;
+    } else {
+      generalCheckbox.checked = true;
+    }
+    syncScopeDisabled();
   };
   ctx.focusInstructBox = () => textarea.focus();
 }

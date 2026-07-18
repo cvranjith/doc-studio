@@ -225,7 +225,9 @@ a { color: var(--accent); }
 .clarify-card .buttons { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
 
 .instruct-box { display: flex; flex-direction: column; gap: 6px; }
-.instruct-box .scope-row { display: flex; gap: 6px; }
+.instruct-box .scope-row { display: flex; flex-direction: column; gap: 6px; }
+.instruct-box .scope-row label.check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); }
+.instruct-box .scope-row select:disabled { opacity: 0.5; }
 .instruct-box textarea { width: 100%; min-height: 60px; resize: vertical; }
 .instruct-box .send-row { display: flex; justify-content: flex-end; }
 
@@ -309,6 +311,14 @@ a { color: var(--accent); }
 
 .template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
 .template-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+
+.wizard-steps { display: flex; gap: 10px; margin-bottom: 18px; }
+.wizard-step {
+  flex: 1; text-align: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-muted); padding-bottom: 6px; border-bottom: 2px solid var(--border);
+}
+.wizard-step.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.wizard-step.done { color: var(--ok); border-color: var(--ok); }
 
 /* -------------------- modal -------------------- */
 .modal-backdrop {

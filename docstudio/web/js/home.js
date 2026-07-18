@@ -23,7 +23,7 @@ export async function renderHome(container, hash) {
   ]);
 
   if (tab === "documents") {
-    const newBtn = el("button", { class: "primary", text: "+ New Document", onclick: openNewDocumentModal });
+    const newBtn = el("button", { class: "primary", text: "+ New Document", onclick: openNewDocumentWizard });
     toolbar.appendChild(newBtn);
   } else {
     const uploadBtn = el("button", { class: "primary", text: "Upload Word Template", onclick: openUploadTemplateModal });
@@ -112,41 +112,164 @@ async function renderTemplatesGrid(host) {
   host.appendChild(wtGrid);
 }
 
-async function openNewDocumentModal() {
+// Three-step wizard: 1) title/type (creates the document immediately so
+// steps 2-3 have a slug to attach to), 2) optional source uploads,
+// 3) optional initial instruction. Every step after the first can be
+// skipped — whatever's skipped is just finished later in the document
+// editor, since the document already exists from step 1 onward.
+async function openNewDocumentWizard() {
   const docTypes = await api.listDocTypes();
-  const title = el("input", { type: "text", placeholder: "e.g. Payment Gateway FSD" });
-  const select = el(
-    "select",
-    {},
-    docTypes.map((t) => el("option", { value: t.doc_type, text: `${t.name} (${t.doc_type})` }))
-  );
+  let step = 1;
+  let slug = null;
+  const uploadedSources = [];
 
-  const content = el("div", {}, [
-    el("h3", { text: "New Document" }),
-    el("div", { class: "field" }, [el("label", { text: "Document Type" }), select]),
-    el("div", { class: "field" }, [el("label", { text: "Title" }), title]),
-    el("div", { class: "buttons" }, [
-      el("button", { text: "Cancel", onclick: closeModal }),
-      el("button", {
-        class: "primary",
-        text: "Create",
-        onclick: async () => {
-          if (!title.value.trim()) {
-            toast("Title is required", true);
-            return;
-          }
-          try {
-            const doc = await api.createDocument(title.value.trim(), select.value, "");
-            closeModal();
-            location.hash = `#/doc/${encodeURIComponent(doc.slug)}`;
-          } catch (e) {
-            toast(e.message, true);
-          }
-        },
+  const body = el("div", {});
+  const content = el("div", {}, [el("h3", { text: "New Document" }), body]);
+  openModal(content, { wide: true });
+
+  function wizardProgress(current) {
+    const labels = ["1. Details", "2. Sources", "3. Initial Instruction"];
+    return el(
+      "div",
+      { class: "wizard-steps" },
+      labels.map((label, i) =>
+        el("span", { class: "wizard-step" + (i + 1 === current ? " active" : i + 1 < current ? " done" : ""), text: label })
+      )
+    );
+  }
+
+  function renderStep() {
+    clear(body);
+    if (step === 1) body.appendChild(stepDetails());
+    else if (step === 2) body.appendChild(stepSources());
+    else body.appendChild(stepInstruction());
+  }
+
+  function stepDetails() {
+    const title = el("input", { type: "text", placeholder: "e.g. Payment Gateway FSD" });
+    const select = el("select", {}, docTypes.map((t) => el("option", { value: t.doc_type, text: `${t.name} (${t.doc_type})` })));
+    const nextBtn = el("button", {
+      class: "primary",
+      text: "Next →",
+      onclick: async () => {
+        if (!title.value.trim()) {
+          toast("Title is required", true);
+          return;
+        }
+        nextBtn.disabled = true;
+        try {
+          const doc = await api.createDocument(title.value.trim(), select.value, "");
+          slug = doc.slug;
+          step = 2;
+          renderStep();
+        } catch (e) {
+          toast(e.message, true);
+          nextBtn.disabled = false;
+        }
+      },
+    });
+    return el("div", {}, [
+      wizardProgress(1),
+      el("div", { class: "field" }, [el("label", { text: "Document Type" }), select]),
+      el("div", { class: "field" }, [el("label", { text: "Title" }), title]),
+      el("div", { class: "buttons" }, [el("button", { text: "Cancel", onclick: closeModal }), nextBtn]),
+    ]);
+  }
+
+  function stepSources() {
+    const list = el("div", {});
+    const dropzone = el("div", { class: "dropzone" }, "Drag files here or click to upload — optional\n(pdf, docx, xlsx, csv, md, txt, png, jpg)");
+    const fileInput = el("input", { type: "file", multiple: true, style: "display:none" });
+    dropzone.addEventListener("click", () => fileInput.click());
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+    dropzone.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+      await handleFiles(e.dataTransfer.files);
+    });
+    fileInput.addEventListener("change", () => handleFiles(fileInput.files));
+
+    const nextBtn = el("button", { class: "primary", text: "Skip →", onclick: () => { step = 3; renderStep(); } });
+
+    async function handleFiles(files) {
+      for (const file of files) {
+        try {
+          uploadedSources.push(await api.uploadSource(slug, file));
+        } catch (e) {
+          toast(e.message, true);
+        }
+      }
+      renderList();
+    }
+
+    function renderList() {
+      clear(list);
+      nextBtn.textContent = uploadedSources.length ? "Next →" : "Skip →";
+      if (!uploadedSources.length) {
+        list.appendChild(el("div", { class: "empty-hint", text: "No sources uploaded yet — that's fine, you can add them later." }));
+        return;
+      }
+      uploadedSources.forEach((s) => {
+        list.appendChild(
+          el("div", { class: "source-item" }, [
+            el("div", { class: "row1" }, [el("span", { class: `status-dot ${s.extraction_status}` }), el("span", { text: s.label })]),
+          ])
+        );
+      });
+    }
+    renderList();
+
+    return el("div", {}, [
+      wizardProgress(2),
+      dropzone,
+      fileInput,
+      list,
+      el("div", { class: "buttons" }, [
+        el("button", { text: "← Back", onclick: () => { step = 1; renderStep(); } }),
+        nextBtn,
+      ]),
+    ]);
+  }
+
+  function stepInstruction() {
+    const instructionArea = el("textarea", {
+      style: "min-height:120px;",
+      placeholder: 'Optional: "Draft the document based on the uploaded sources, focusing on FAST and MEPS+ rails." Leave blank to start from an empty document.',
+    });
+    const finishBtn = el("button", { class: "primary", text: "Skip → Open Document" });
+    instructionArea.addEventListener("input", () => {
+      finishBtn.textContent = instructionArea.value.trim() ? "Start Drafting →" : "Skip → Open Document";
+    });
+    finishBtn.addEventListener("click", () => {
+      const instruction = instructionArea.value.trim();
+      if (instruction) {
+        sessionStorage.setItem(
+          `docstudio:pendingInstruction:${slug}`,
+          JSON.stringify({ instruction, checkedSourceIds: uploadedSources.map((s) => s.id) })
+        );
+      }
+      closeModal();
+      location.hash = `#/doc/${encodeURIComponent(slug)}`;
+    });
+    return el("div", {}, [
+      wizardProgress(3),
+      el("div", { class: "field" }, [el("label", { text: "Initial instruction (optional)" }), instructionArea]),
+      el("div", {
+        class: "empty-hint",
+        text: "This is sent as the first instruction once the document opens — the same as typing it into the Conversation panel yourself. It kicks off an agentic draft using whatever sources you uploaded.",
       }),
-    ]),
-  ]);
-  openModal(content);
+      el("div", { class: "buttons" }, [
+        el("button", { text: "← Back", onclick: () => { step = 2; renderStep(); } }),
+        finishBtn,
+      ]),
+    ]);
+  }
+
+  renderStep();
 }
 
 function openUploadTemplateModal() {

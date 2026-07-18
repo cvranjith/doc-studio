@@ -41,6 +41,23 @@ export async function renderDocumentView(container, slug) {
     reloadAll: () => renderDocumentView(container, slug),
   };
 
+  // A New Document wizard may have queued an initial instruction (§ home.js)
+  // — consume it once, pre-checking whatever sources it named so the
+  // Sources pane reflects the same scope the auto-triggered instruction uses.
+  const pendingKey = `docstudio:pendingInstruction:${slug}`;
+  let pendingInstruction = null;
+  const pendingRaw = sessionStorage.getItem(pendingKey);
+  if (pendingRaw) {
+    sessionStorage.removeItem(pendingKey);
+    try {
+      const pending = JSON.parse(pendingRaw);
+      pendingInstruction = pending.instruction;
+      ctx.checkedSourceIds = new Set(pending.checkedSourceIds || []);
+    } catch (e) {
+      /* ignore malformed sessionStorage entry */
+    }
+  }
+
   const header = el("div", { class: "doc-header" });
   container.appendChild(header);
 
@@ -144,6 +161,10 @@ export async function renderDocumentView(container, slug) {
   renderConversationPane(rightBody, ctx);
   if (prefs.focusedChapterFile && ctx.setScope) ctx.setScope(prefs.focusedChapterFile);
   await renderChapters(middleBody, ctx);
+
+  if (pendingInstruction) {
+    await runInstruction(ctx, pendingInstruction, "document");
+  }
 }
 
 function renderHeader(header, ctx) {
