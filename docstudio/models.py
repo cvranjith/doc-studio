@@ -118,6 +118,8 @@ class DocTypeTemplate(BaseModel):
     name: str
     version: str = "1.0"
     word_template: str = ""
+    general_instructions: str = ""
+    clarification_policy: str = ""
     chapters: list[ChapterSpec] = Field(default_factory=list)
     interview_bank: list[InterviewQuestion] = Field(default_factory=list)
     quality_checklist: list[str] = Field(default_factory=list)

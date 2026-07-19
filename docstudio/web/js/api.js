@@ -65,6 +65,10 @@ export const api = {
   listDocTypes: () => req("GET", "/templates/doc_types"),
   getDocType: (docType) => req("GET", `/templates/doc_types/${docType}`),
   saveDocType: (docType, payload) => req("PUT", `/templates/doc_types/${docType}`, payload),
+  getDocTypeRaw: (docType) => req("GET", `/templates/doc_types/${docType}/raw`),
+  saveDocTypeRaw: (docType, raw) => req("PUT", `/templates/doc_types/${docType}/raw`, { raw }),
+  createDocType: (docType, raw) => req("POST", "/templates/doc_types", { doc_type: docType, raw }),
+  deleteDocType: (docType) => req("DELETE", `/templates/doc_types/${docType}`),
   attachDocTypeWordTemplate: async (docType, file) => {
     const form = new FormData();
     form.append("file", file);

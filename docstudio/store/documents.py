@@ -248,8 +248,7 @@ class DocumentStore:
 
         ref = ChapterRef(file=file, title=title, status="empty", derived=False, open_questions=0)
         if position is None:
-            # default: insert just before any derived (e.g. glossary) chapters
-            position = next((i for i, c in enumerate(manifest.chapters) if c.derived), len(manifest.chapters))
+            position = len(manifest.chapters)
         position = max(0, min(position, len(manifest.chapters)))
         manifest.chapters.insert(position, ref)
         self.save_manifest(manifest)

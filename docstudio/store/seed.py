@@ -42,6 +42,24 @@ def _fsd_template() -> DocTypeTemplate:
         name="Functional Specification Document",
         version="1.0",
         word_template="corporate-default.docx",
+        general_instructions=(
+            "A Functional Specification Document (FSD) is the artifact a client's architects, business "
+            "stakeholders, and delivery team sign off on before build starts. It must give a build team "
+            "enough detail to estimate and implement without further discovery, and give a business "
+            "stakeholder enough clarity to approve scope.\n\n"
+            "Tone: formal, third person, no marketing language. Every functional requirement gets a unique "
+            "ID (FR-nn) and every non-functional requirement a measurable target — no vague terms like "
+            "\"fast\" or \"secure\" without a number attached. Acronyms and domain terms are defined once, "
+            "in the Glossary, and used consistently everywhere else."
+        ),
+        clarification_policy=(
+            "Ask only when the sources don't already answer the question and the answer would materially "
+            "change what gets written — not for things you can reasonably assume or infer. Prefer "
+            "multiple-choice questions when the space of plausible answers is small (e.g. which payment "
+            "rails, which environment); use free text only when it genuinely can't be enumerated. Batch up "
+            "to 3 questions together if a chapter needs more than one thing clarified, rather than pausing "
+            "repeatedly. Scope, in particular, blocks almost everything downstream — resolve it early."
+        ),
         chapters=[
             ChapterSpec(
                 number="01",
@@ -123,6 +141,23 @@ def _integration_spec_template() -> DocTypeTemplate:
         name="Integration Specification",
         version="1.0",
         word_template="corporate-default.docx",
+        general_instructions=(
+            "An Integration Specification is read by the engineers building both sides of an integration "
+            "(the client's team and the delivery team), plus whoever signs off on non-functional targets. "
+            "It must be precise enough that two teams who never talk directly can build compatible "
+            "implementations from it alone.\n\n"
+            "Tone: technical, precise, third person. Every message field gets an explicit type and "
+            "required/optional flag — no implied structure. Every error code gets a documented retry "
+            "behaviour. Prefer tables and Mermaid sequence diagrams over prose wherever a flow or "
+            "structure can be shown instead of described."
+        ),
+        clarification_policy=(
+            "Ask only when the sources don't already answer the question and the answer would materially "
+            "change the design — not for things inferable from context. Prefer multiple-choice for "
+            "questions with a small answer space (e.g. sync vs async). Batch up to 3 questions per chapter "
+            "rather than pausing repeatedly. Sync/async and peak-volume answers block message-format and "
+            "SLA chapters downstream, so resolve those early."
+        ),
         chapters=[
             ChapterSpec(
                 number="01",
@@ -180,6 +215,22 @@ def _approach_doc_template() -> DocTypeTemplate:
         name="Approach Document",
         version="1.0",
         word_template="corporate-default.docx",
+        general_instructions=(
+            "An Approach Document is a pre-sales / early-engagement artifact read by senior client "
+            "stakeholders deciding whether to proceed, plus the delivery team who will be held to what it "
+            "promises. It sells the approach while committing to something realistic.\n\n"
+            "Tone: confident but not salesy, plain language over jargon — a senior stakeholder skimming "
+            "the Executive Summary alone should understand the engagement. Every risk gets a named owner "
+            "and a concrete mitigation, not a generic one. Timeline milestones must align with the phases "
+            "named in Methodology."
+        ),
+        clarification_policy=(
+            "Ask only when the sources don't already answer the question and the answer would materially "
+            "change the proposed approach — not for things inferable from context. Prefer multiple-choice "
+            "for questions with a small answer space (e.g. pricing model). Batch up to 3 questions per "
+            "chapter rather than pausing repeatedly. Engagement start date and pricing model block the "
+            "Timeline and Team/Governance chapters, so resolve those early."
+        ),
         chapters=[
             ChapterSpec(
                 number="01",

@@ -104,17 +104,43 @@ async function renderTemplatesGrid(host) {
   const [docTypes, wordTemplates] = await Promise.all([api.listDocTypes(), api.listWordTemplates()]);
   clear(host);
 
-  host.appendChild(el("h2", { text: "Document Type Templates" }));
+  const dtHeader = el("div", { class: "home-toolbar", style: "margin:0 0 4px;" }, [
+    el("h2", { text: "Document Type Templates", style: "flex:1; margin:0;" }),
+    el("button", { class: "small", text: "+ New Template", onclick: () => openNewTemplateModal(() => renderTemplatesGrid(host)) }),
+  ]);
+  host.appendChild(dtHeader);
   host.appendChild(
-    el("div", { class: "empty-hint", text: "Each template drives what a new document of that type looks like: its chapters and per-chapter drafting instructions, the clarification interview bank, and the Word template used at export time. Click a card to edit." })
+    el("div", { class: "empty-hint", text: "Each template drives what a new document of that type looks like: its chapters and per-chapter drafting instructions, the clarification interview bank, and the Word template used at export time. Edit as a form, or as one markdown file (handy for pasting in something LLM-generated)." })
   );
   const dtGrid = el("div", { class: "template-grid" });
   for (const t of docTypes) {
+    const editBtn = el("button", { class: "small", text: "Edit", onclick: (e) => { e.stopPropagation(); openTemplateEditor(t.doc_type); } });
+    const markdownBtn = el("button", {
+      class: "small",
+      text: "Edit as Markdown",
+      onclick: (e) => { e.stopPropagation(); openTemplateMarkdownEditor(t.doc_type, () => renderTemplatesGrid(host)); },
+    });
+    const deleteBtn = el("button", {
+      class: "small danger",
+      text: "Delete",
+      onclick: async (e) => {
+        e.stopPropagation();
+        if (!confirm(`Delete template "${t.name}" (${t.doc_type})? This does not affect documents already created from it.`)) return;
+        try {
+          await api.deleteDocType(t.doc_type);
+          toast(`Deleted "${t.name}"`);
+          await renderTemplatesGrid(host);
+        } catch (err) {
+          toast(err.message, true);
+        }
+      },
+    });
     dtGrid.appendChild(
-      el("div", { class: "template-card", onclick: () => openTemplateEditor(t.doc_type) }, [
+      el("div", { class: "template-card" }, [
         el("div", { class: "doc-title", text: t.name }),
         el("div", { class: "doc-meta", text: `${t.doc_type} · v${t.version} · ${t.chapters.length} chapters` }),
         el("div", { class: "doc-meta", text: t.word_template ? `Word template: ${t.word_template}` : "No word template attached" }),
+        el("div", { class: "doc-card-actions", style: "gap:6px;" }, [editBtn, markdownBtn, deleteBtn]),
       ])
     );
   }
@@ -369,6 +395,108 @@ function openUploadTemplateModal() {
   openModal(content);
 }
 
+async function openTemplateMarkdownEditor(docType, onSaved) {
+  const { raw } = await api.getDocTypeRaw(docType);
+  const textarea = el("textarea", { class: "tpl-raw-editor", text: raw, spellcheck: "false" });
+  const errorBox = el("div", { class: "empty-hint tpl-raw-error", style: "display:none; color: var(--danger);" });
+  const saveBtn = el("button", {
+    class: "primary",
+    text: "Save Template",
+    onclick: async () => {
+      saveBtn.disabled = true;
+      errorBox.style.display = "none";
+      try {
+        await api.saveDocTypeRaw(docType, textarea.value);
+        toast("Template saved");
+        closeModal();
+        if (onSaved) await onSaved();
+      } catch (e) {
+        errorBox.textContent = e.message;
+        errorBox.style.display = "block";
+      } finally {
+        saveBtn.disabled = false;
+      }
+    },
+  });
+  const content = el("div", {}, [
+    el("h3", { text: `Edit Template as Markdown — ${docType}` }),
+    el("div", {
+      class: "empty-hint",
+      text: "Frontmatter (doc_type/name/version/word_template), then # General Instructions, # Chapters, # Clarification Policy, # Interview Bank, and # Quality Checklist sections — all in one file. This is exactly what's stored on disk, so you can generate it with an LLM and paste it straight in.",
+    }),
+    textarea,
+    errorBox,
+    el("div", { class: "buttons" }, [el("button", { text: "Cancel", onclick: closeModal }), saveBtn]),
+  ]);
+  openModal(content, { wide: true });
+}
+
+const NEW_TEMPLATE_SKELETON = (docType, name) => `---
+doc_type: ${docType}
+name: ${name}
+version: '1.0'
+---
+
+# General Instructions
+
+What this document is, who reads it, why it exists — plus document-wide conventions (tone, voice, formatting rules). Shared context for every chapter.
+
+# Chapters
+
+## 01 - Introduction
+required: true
+prompt: 'What this chapter must cover.'
+
+# Clarification Policy
+
+Guidance for when/how to ask clarifying questions, e.g. "only ask if the answer isn't inferable from sources and would materially change the chapter; prefer multiple-choice when the answer space is finite; up to 3 questions per chapter."
+
+# Interview Bank
+
+
+# Quality Checklist
+
+`;
+
+function openNewTemplateModal(onCreated) {
+  const idInput = el("input", { type: "text", placeholder: "e.g. risk-assessment" });
+  const nameInput = el("input", { type: "text", placeholder: "e.g. Risk Assessment Report" });
+  const createBtn = el("button", {
+    class: "primary",
+    text: "Create →",
+    onclick: async () => {
+      const docType = idInput.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const name = nameInput.value.trim();
+      if (!docType || !name) {
+        toast("Both fields are required", true);
+        return;
+      }
+      createBtn.disabled = true;
+      try {
+        await api.createDocType(docType, NEW_TEMPLATE_SKELETON(docType, name));
+        closeModal();
+        toast("Template created");
+        if (onCreated) await onCreated();
+        openTemplateMarkdownEditor(docType, onCreated);
+      } catch (e) {
+        toast(e.message, true);
+        createBtn.disabled = false;
+      }
+    },
+  });
+  const content = el("div", {}, [
+    el("h3", { text: "New Template" }),
+    el("div", { class: "field" }, [el("label", { text: "Template ID (lowercase, hyphens)" }), idInput]),
+    el("div", { class: "field" }, [el("label", { text: "Display Name" }), nameInput]),
+    el("div", {
+      class: "empty-hint",
+      text: "Creates a minimal starting template with one chapter — opens the markdown editor next so you can flesh it out (or paste in something LLM-generated).",
+    }),
+    el("div", { class: "buttons" }, [el("button", { text: "Cancel", onclick: closeModal }), createBtn]),
+  ]);
+  openModal(content);
+}
+
 async function openTemplateEditor(docType) {
   const tpl = await api.getDocType(docType);
   const chapters = tpl.chapters.map((c) => ({ ...c }));
@@ -377,6 +505,16 @@ async function openTemplateEditor(docType) {
 
   const nameInput = el("input", { type: "text", value: tpl.name });
   const versionInput = el("input", { type: "text", value: tpl.version });
+  const generalInstructionsTa = el("textarea", {
+    text: tpl.general_instructions || "",
+    placeholder: "What this document is, who reads it, why it exists — plus document-wide conventions (tone, formatting rules). Shared context for every chapter.",
+    style: "min-height:90px;",
+  });
+  const clarificationPolicyTa = el("textarea", {
+    text: tpl.clarification_policy || "",
+    placeholder: "Guidance for when/how the engine should ask clarifying questions, e.g. \"only ask if the answer isn't inferable from sources and would materially change the chapter; prefer multiple-choice; up to 3 questions per chapter.\"",
+    style: "min-height:70px;",
+  });
 
   const wordTemplateLabel = el("span", { text: tpl.word_template || "(none attached)" });
   const wordTemplateFile = el("input", { type: "file", accept: ".docx", style: "display:none" });
@@ -541,8 +679,10 @@ async function openTemplateEditor(docType) {
     el("div", { class: "field" }, [el("label", { text: "Name" }), nameInput]),
     el("div", { class: "field" }, [el("label", { text: "Version" }), versionInput]),
     wordTemplateRow,
+    el("div", { class: "tpl-section" }, [el("h4", { text: "General Instructions" }), generalInstructionsTa]),
     el("div", { class: "tpl-section" }, [el("h4", { text: "Chapters" }), chaptersHost, addChapterBtn]),
-    el("div", { class: "tpl-section" }, [el("h4", { text: "Interview Bank" }), iqHost, addIQBtn]),
+    el("div", { class: "tpl-section" }, [el("h4", { text: "Clarification Policy" }), clarificationPolicyTa]),
+    el("div", { class: "tpl-section" }, [el("h4", { text: "Interview Bank (seed/example questions)" }), iqHost, addIQBtn]),
     el("div", { class: "tpl-section" }, [el("h4", { text: "Quality Checklist" }), clHost, addChecklistBtn]),
     el("div", { class: "buttons" }, [
       el("button", { text: "Cancel", onclick: closeModal }),
@@ -555,6 +695,8 @@ async function openTemplateEditor(docType) {
               name: nameInput.value.trim(),
               version: versionInput.value.trim(),
               word_template: wordTemplateLabel.textContent === "(none attached)" ? "" : wordTemplateLabel.textContent,
+              general_instructions: generalInstructionsTa.value.trim(),
+              clarification_policy: clarificationPolicyTa.value.trim(),
               chapters,
               interview_bank: interviewBank,
               quality_checklist: checklist.filter((c) => c.trim()),

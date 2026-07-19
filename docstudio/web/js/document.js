@@ -364,7 +364,9 @@ function renderChaptersTab(host, ctx) {
 
   const addInput = el("input", { type: "text", placeholder: "New chapter title…" });
   const addBtn = el("button", {
-    class: "primary small",
+    class: "icon-btn primary",
+    title: "Add chapter",
+    type: "button",
     onclick: async () => {
       const title = addInput.value.trim();
       if (!title) return;
@@ -376,7 +378,7 @@ function renderChaptersTab(host, ctx) {
         toast(e.message, true);
       }
     },
-  }, [icon("plus"), " Add"]);
+  }, [icon("plus")]);
   host.appendChild(el("div", { class: "add-chapter-row" }, [addInput, addBtn]));
 }
 

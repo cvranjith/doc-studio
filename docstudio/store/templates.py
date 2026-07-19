@@ -35,8 +35,12 @@ def _split_sections(text: str, prefix: str) -> list[tuple[str, str]]:
 
 
 def parse_doc_type_template(text: str) -> DocTypeTemplate:
+    if not _FRONTMATTER_RE.match(text):
+        raise ValueError("template must start with a --- frontmatter block (doc_type, name, version) followed by ---")
     meta, body = _split_frontmatter(text)
     top = dict(_split_sections(body, "#"))
+    if not meta.get("name"):
+        raise ValueError("frontmatter must include a non-empty 'name'")
 
     chapters: list[ChapterSpec] = []
     for header, block in _split_sections(top.get("Chapters", ""), "##"):
@@ -63,6 +67,8 @@ def parse_doc_type_template(text: str) -> DocTypeTemplate:
         name=meta.get("name", meta.get("doc_type", "")),
         version=str(meta.get("version", "1.0")),
         word_template=meta.get("word_template", "") or "",
+        general_instructions=top.get("General Instructions", "").strip(),
+        clarification_policy=top.get("Clarification Policy", "").strip(),
         chapters=chapters,
         interview_bank=interview_bank,
         quality_checklist=list(checklist),
@@ -78,8 +84,16 @@ def render_doc_type_template(tpl: DocTypeTemplate) -> str:
     frontmatter = {"doc_type": tpl.doc_type, "name": tpl.name, "version": tpl.version}
     if tpl.word_template:
         frontmatter["word_template"] = tpl.word_template
-    lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip(), "---", "", "# Chapters", ""]
+    lines = ["---", yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip(), "---", ""]
 
+    lines.append("# General Instructions")
+    lines.append("")
+    if tpl.general_instructions.strip():
+        lines.append(tpl.general_instructions.strip())
+    lines.append("")
+
+    lines.append("# Chapters")
+    lines.append("")
     for c in tpl.chapters:
         lines.append(f"## {c.number} - {c.title}")
         block = {"required": c.required}
@@ -88,6 +102,12 @@ def render_doc_type_template(tpl: DocTypeTemplate) -> str:
         block["prompt"] = c.prompt
         lines.append(yaml.safe_dump(block, sort_keys=False, allow_unicode=True).strip())
         lines.append("")
+
+    lines.append("# Clarification Policy")
+    lines.append("")
+    if tpl.clarification_policy.strip():
+        lines.append(tpl.clarification_policy.strip())
+    lines.append("")
 
     lines.append("# Interview Bank")
     lines.append("")
@@ -191,6 +211,41 @@ class TemplateRegistry:
     def save_doc_type(self, tpl: DocTypeTemplate) -> None:
         path = self.workspace.doc_type_templates / f"{tpl.doc_type}.md"
         path.write_text(render_doc_type_template(tpl), encoding="utf-8")
+
+    def get_doc_type_raw(self, doc_type: str) -> str:
+        path = self.workspace.doc_type_templates / f"{doc_type}.md"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown doc type: {doc_type}")
+        return path.read_text(encoding="utf-8")
+
+    def save_doc_type_raw(self, doc_type: str, raw: str) -> DocTypeTemplate:
+        """Update an existing doc-type template from a hand-edited (or
+        LLM-generated) markdown blob. Parses and re-renders it so the stored
+        file stays in the canonical format regardless of minor formatting
+        differences in what was pasted in.
+        """
+        path = self.workspace.doc_type_templates / f"{doc_type}.md"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown doc type: {doc_type}")
+        tpl = parse_doc_type_template(raw)
+        tpl.doc_type = doc_type
+        self.save_doc_type(tpl)
+        return tpl
+
+    def create_doc_type(self, doc_type: str, raw: str) -> DocTypeTemplate:
+        path = self.workspace.doc_type_templates / f"{doc_type}.md"
+        if path.exists():
+            raise FileExistsError(f"Doc type already exists: {doc_type}")
+        tpl = parse_doc_type_template(raw)
+        tpl.doc_type = doc_type
+        self.save_doc_type(tpl)
+        return tpl
+
+    def delete_doc_type(self, doc_type: str) -> None:
+        path = self.workspace.doc_type_templates / f"{doc_type}.md"
+        if not path.exists():
+            raise FileNotFoundError(f"Unknown doc type: {doc_type}")
+        path.unlink()
 
     # -- word templates ------------------------------------------------
 
