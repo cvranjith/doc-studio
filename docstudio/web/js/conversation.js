@@ -20,7 +20,7 @@ export function renderConversationPane(pane, ctx) {
   syncScopeDisabled();
 
   const textarea = el("textarea", { placeholder: "Instruction, e.g. “Draft the document”, “Generate outline”…" });
-  const sendBtn = el("button", { class: "primary", text: "Send" });
+  const sendBtn = el("button", { class: "primary send-btn", text: "➤", title: "Send" });
   const interviewBtn = el("button", {
     text: "Interview me",
     title: "Walk through the doc-type's clarification questions one at a time",
@@ -29,22 +29,25 @@ export function renderConversationPane(pane, ctx) {
 
   const box = el("div", { class: "instruct-box" }, [
     el("div", { class: "scope-row" }, [scopeLabel, scopeSelect]),
-    textarea,
-    el("div", { class: "send-row" }, [interviewBtn, sendBtn]),
-    el("div", {
-      class: "empty-hint",
-      style: "margin-top:6px;",
-      text: 'Tip: natural-language chapter edits (e.g. "insert a chapter about X after Scope") are a planned reasoning-engine capability, not wired up in this mock — use + Add Chapter in the Chapters tab for now.',
-    }),
+    el("div", { class: "compose-row" }, [textarea, sendBtn]),
+    el("div", { class: "send-row" }, [interviewBtn]),
   ]);
   pane.appendChild(box);
 
-  sendBtn.addEventListener("click", async () => {
+  async function send() {
     const instruction = textarea.value.trim();
     if (!instruction) return;
     textarea.value = "";
     const scope = generalCheckbox.checked ? "document" : scopeSelect.value;
     await runInstruction(ctx, instruction, scope);
+  }
+
+  sendBtn.addEventListener("click", send);
+  textarea.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      send();
+    }
   });
 
   ctx.setScope = (file) => {
@@ -61,19 +64,48 @@ export function renderConversationPane(pane, ctx) {
 
 function addLogEntry(ctx, cls, text) {
   if (!ctx.conversationLog) return;
-  ctx.conversationLog.appendChild(el("div", { class: `msg ${cls}`, text }));
+  const bubble =
+    cls === "log"
+      ? el("div", { class: `msg ${cls}`, text })
+      : el("div", { class: `msg ${cls}` }, [
+          el("span", { class: "msg-avatar", text: cls === "user" ? "🧑" : "🤖" }),
+          el("div", { class: "msg-bubble", text }),
+        ]);
+  ctx.conversationLog.appendChild(bubble);
   ctx.conversationLog.scrollTop = ctx.conversationLog.scrollHeight;
+  return bubble;
+}
+
+function addTypingIndicator(ctx) {
+  if (!ctx.conversationLog) return null;
+  const bubble = el("div", { class: "msg engine typing-indicator" }, [
+    el("span", { class: "msg-avatar", text: "🤖" }),
+    el("div", { class: "msg-bubble" }, [el("span", { class: "ai-dots" }, [el("span", {}), el("span", {}), el("span", {})])]),
+  ]);
+  ctx.conversationLog.appendChild(bubble);
+  ctx.conversationLog.scrollTop = ctx.conversationLog.scrollHeight;
+  return bubble;
 }
 
 export async function runInstruction(ctx, instruction, scope) {
   addLogEntry(ctx, "user", instruction);
-  const checked = Array.from(ctx.checkedSourceIds || []);
+  const typingBubble = addTypingIndicator(ctx);
+  let typingCleared = false;
+  const clearTyping = () => {
+    if (!typingCleared && typingBubble) {
+      typingCleared = true;
+      typingBubble.remove();
+    }
+  };
 
+  const checked = Array.from(ctx.checkedSourceIds || []);
   try {
-    await api.instruct(ctx.slug, { instruction, scope, checked_source_ids: checked }, (event) =>
-      handleEvent(ctx, event, instruction, scope)
-    );
+    await api.instruct(ctx.slug, { instruction, scope, checked_source_ids: checked }, (event) => {
+      clearTyping();
+      handleEvent(ctx, event, instruction, scope);
+    });
   } catch (e) {
+    clearTyping();
     toast(e.message, true);
     addLogEntry(ctx, "log", "Error: " + e.message);
   }

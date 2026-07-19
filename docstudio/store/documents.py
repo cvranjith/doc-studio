@@ -26,6 +26,24 @@ from docstudio.store.templates import TemplateRegistry
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?(.*)$", re.DOTALL)
 
 
+_H1_RE = re.compile(r"^#\s+(.+?)\s*$")
+
+
+def extract_h1_title(body: str) -> str | None:
+    """The chapter's leading ``# Heading`` line, if the body starts with
+    one — used to keep the chapter title (shown in the card header, the
+    Chapters tab, etc.) in sync with the actual heading text, so a rename
+    made by editing the heading doesn't leave the two out of sync.
+    """
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        m = _H1_RE.match(stripped)
+        return m.group(1).strip() if m else None
+    return None
+
+
 def slugify(text: str) -> str:
     slug = text.lower().strip()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
@@ -190,6 +208,11 @@ class DocumentStore:
         if frontmatter is None:
             existing = self.get_chapter(slug, file)
             frontmatter = existing.frontmatter
+
+        title = extract_h1_title(body)
+        if title:
+            frontmatter.title = title
+
         path = self.chapter_path(slug, file)
         path.write_text(render_frontmatter(frontmatter.model_dump(mode="json"), body), encoding="utf-8")
 
@@ -197,6 +220,8 @@ class DocumentStore:
         for ref in manifest.chapters:
             if ref.file == file:
                 ref.status = frontmatter.status
+                if title:
+                    ref.title = title
                 break
         self.save_manifest(manifest)
         return Chapter(frontmatter=frontmatter, body=body, file=file)

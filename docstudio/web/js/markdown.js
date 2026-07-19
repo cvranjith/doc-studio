@@ -16,6 +16,22 @@ export function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// The chapter card header already shows the (H1-synced) chapter title —
+// rendering the body's own leading "# Title" line too would show it twice.
+// Only used for read-only display; the WYSIWYG editor keeps the heading
+// visible/editable since that's how a user renames a chapter.
+export function stripLeadingHeading(text) {
+  const lines = (text || "").split("\n");
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  if (i < lines.length && /^#\s+/.test(lines[i].trim())) {
+    let j = i + 1;
+    while (j < lines.length && lines[j].trim() === "") j++;
+    return lines.slice(j).join("\n");
+  }
+  return text;
+}
+
 // Chapter markdown references images as relative "assets/<filename>" paths
 // (matching the filesystem contract / Word export's own path resolution).
 // For on-screen display that needs to become an actual fetchable URL.

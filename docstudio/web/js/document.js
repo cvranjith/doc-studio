@@ -1,6 +1,6 @@
 import { api } from "./api.js";
 import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, SYSTEM_TEMPLATE_VARIABLES, variableFields } from "./util.js";
-import { renderInto } from "./markdown.js";
+import { renderInto, stripLeadingHeading, escapeHtml } from "./markdown.js";
 import { renderSourcesPane } from "./sources.js";
 import { renderConversationPane, runInstruction } from "./conversation.js";
 import { createWysiwygEditor } from "./wysiwyg.js";
@@ -66,8 +66,8 @@ export async function renderDocumentView(container, slug) {
   container.appendChild(workspace);
 
   const leftPane = el("div", { class: "pane" });
-  const middlePane = el("div", { class: "pane" });
-  const rightPane = el("div", { class: "pane" });
+  const middlePane = el("div", { class: "pane pane-document" });
+  const rightPane = el("div", { class: "pane pane-conversation" });
   workspace.appendChild(leftPane);
   workspace.appendChild(middlePane);
   workspace.appendChild(rightPane);
@@ -143,6 +143,7 @@ export async function renderDocumentView(container, slug) {
       if (h) {
         h.setStatus(c.status);
         h.setOpenQuestions(c.open_questions);
+        h.setTitle(c.title);
       }
     }
     if (prefs.activeLeftTab === "chapters") renderLeftTab();
@@ -417,58 +418,58 @@ async function renderChapters(pane, ctx) {
   }
 }
 
+function iconButton(icon, title, onclick, extraClass) {
+  return el("button", { class: `icon-btn${extraClass ? " " + extraClass : ""}`, title, text: icon, onclick });
+}
+
 function buildChapterCard(ctx, chapterRef) {
   const card = el("div", { class: "chapter-card" });
   const statusPill = statusBadge(chapterRef.status);
   const oqBadgeSlot = el("span", {});
+  const aiBadge = el("span", { class: "ai-writing-badge" }, [
+    "Writing",
+    el("span", { class: "ai-dots" }, [el("span", {}), el("span", {}), el("span", {})]),
+  ]);
   const head = el("div", { class: "chapter-head" }, [
     el("span", { class: "title", text: chapterRef.title }),
+    aiBadge,
     oqBadgeSlot,
     statusPill,
   ]);
+
+  const toolbar = el("div", { class: "chapter-toolbar" });
+  if (chapterRef.derived) {
+    toolbar.appendChild(
+      iconButton("↻", "Refresh from current chapters", () =>
+        runInstruction(ctx, "Refresh the glossary from the current chapters.", chapterRef.file)
+      )
+    );
+  } else {
+    toolbar.appendChild(
+      iconButton("💬", "Iterate — focus this chapter and instruct on the right", () => ctx.focusChapter(chapterRef.file))
+    );
+    toolbar.appendChild(
+      iconButton("↻", "Regenerate from scratch", () => runInstruction(ctx, "Regenerate this chapter from scratch.", chapterRef.file))
+    );
+  }
+  const editBtn = iconButton("✎", "Edit", () => openEditor(ctx, chapterRef, bodyEl));
+  toolbar.appendChild(editBtn);
+  toolbar.appendChild(iconButton("👁", "Mark reviewed", () => markStatus(ctx, chapterRef.file, "reviewed")));
+  toolbar.appendChild(iconButton("✓", "Mark final", () => markStatus(ctx, chapterRef.file, "final"), "primary"));
+  toolbar.appendChild(iconButton("🗑", "Delete chapter", () => deleteChapter(ctx, chapterRef.file), "danger"));
+
   const bodyEl = el("div", { class: "chapter-body markdown-body" });
-  const actions = el("div", { class: "actions" });
 
   card.appendChild(head);
+  card.appendChild(toolbar);
   card.appendChild(bodyEl);
-  card.appendChild(actions);
 
   api
     .getChapter(ctx.slug, chapterRef.file)
-    .then((chapter) => renderInto(bodyEl, chapter.body, ctx.slug))
+    .then((chapter) => renderInto(bodyEl, stripLeadingHeading(chapter.body), ctx.slug))
     .catch(() => {
       bodyEl.textContent = "Failed to load chapter.";
     });
-
-  if (chapterRef.derived) {
-    actions.appendChild(
-      el("button", {
-        text: "Refresh",
-        onclick: () => runInstruction(ctx, "Refresh the glossary from the current chapters.", chapterRef.file),
-      })
-    );
-  } else {
-    actions.appendChild(
-      el("button", {
-        text: "Iterate",
-        title: "Focus this chapter and use the Conversation pane on the right to iterate",
-        onclick: () => ctx.focusChapter(chapterRef.file),
-      })
-    );
-    actions.appendChild(
-      el("button", {
-        text: "Regenerate",
-        onclick: () => runInstruction(ctx, "Regenerate this chapter from scratch.", chapterRef.file),
-      })
-    );
-  }
-
-  actions.appendChild(el("button", { text: "Edit", onclick: () => openEditor(ctx, chapterRef, bodyEl) }));
-  actions.appendChild(el("button", { text: "Mark reviewed", onclick: () => markStatus(ctx, chapterRef.file, "reviewed") }));
-  actions.appendChild(el("button", { class: "primary", text: "Mark final", onclick: () => markStatus(ctx, chapterRef.file, "final") }));
-  actions.appendChild(
-    el("button", { class: "danger", text: "Delete", onclick: () => deleteChapter(ctx, chapterRef.file) })
-  );
 
   let streaming = false;
   let buffer = "";
@@ -478,16 +479,20 @@ function buildChapterCard(ctx, chapterRef) {
       if (!streaming) {
         streaming = true;
         buffer = "";
+        card.classList.add("generating");
         bodyEl.classList.add("streaming");
-        bodyEl.textContent = "";
+        aiBadge.classList.add("active");
+        bodyEl.innerHTML = "";
       }
       buffer += chunk;
-      bodyEl.textContent = buffer;
+      bodyEl.innerHTML = `<p>${escapeHtml(buffer).replace(/\n/g, "<br>")}<span class="typing-cursor"></span></p>`;
     },
     onComplete: (fullMarkdown) => {
       streaming = false;
+      card.classList.remove("generating");
       bodyEl.classList.remove("streaming");
-      renderInto(bodyEl, fullMarkdown, ctx.slug);
+      aiBadge.classList.remove("active");
+      renderInto(bodyEl, stripLeadingHeading(fullMarkdown), ctx.slug);
     },
     setStatus: (status) => {
       statusPill.textContent = status;
@@ -496,6 +501,9 @@ function buildChapterCard(ctx, chapterRef) {
     setOpenQuestions: (n) => {
       clear(oqBadgeSlot);
       if (n) oqBadgeSlot.appendChild(el("span", { class: "badge oq", text: `${n} open` }));
+    },
+    setTitle: (title) => {
+      head.querySelector(".title").textContent = title;
     },
   };
   handler.setOpenQuestions(chapterRef.open_questions);
@@ -525,7 +533,7 @@ function openEditor(ctx, chapterRef, bodyEl) {
         onclick: async () => {
           editor.element.remove();
           controls.remove();
-          renderInto(bodyEl, chapter.body, ctx.slug);
+          renderInto(bodyEl, stripLeadingHeading(chapter.body), ctx.slug);
           bodyEl.style.display = "";
         },
       }),
@@ -537,7 +545,7 @@ function openEditor(ctx, chapterRef, bodyEl) {
             const updated = await api.saveChapter(ctx.slug, chapterRef.file, { body: editor.getMarkdown() });
             editor.element.remove();
             controls.remove();
-            renderInto(bodyEl, updated.body, ctx.slug);
+            renderInto(bodyEl, stripLeadingHeading(updated.body), ctx.slug);
             bodyEl.style.display = "";
             toast("Chapter saved");
             await ctx.refreshManifest();

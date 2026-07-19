@@ -225,11 +225,31 @@ supports drag-to-reorder, delete, and adding a chapter manually (title only;
 content comes from an instruction afterwards). Clicking a chapter there
 *focuses* the middle pane on just that chapter (click again, or "Show all
 chapters", to go back to the full document). The right pane holds the single
-Conversation/instruction box, also collapsible — its scope selector follows
-whichever chapter is focused, so **Iterate** on a chapter card just focuses
-it and lets you type into the right pane rather than opening an inline box
-per chapter. **Interview me** there triggers the engine's interview-bank walk
-explicitly, independent of drafting.
+Conversation/instruction box, styled as a chat panel (avatar bubbles, an
+animated "typing" indicator while an instruction is in flight), also
+collapsible — its scope selector follows whichever chapter is focused, so
+**Iterate** on a chapter card just focuses it and lets you type into the
+right pane rather than opening an inline box per chapter. **Interview me**
+there triggers the engine's interview-bank walk explicitly, independent of
+drafting.
+
+Chapter cards are elevated white cards on a pale document-pane background,
+with a compact icon toolbar (Iterate/Regenerate, Edit, Mark reviewed, Mark
+final, Delete) at the top rather than a text-button row at the bottom. A
+chapter's title is derived from its body's leading `# Heading` line —
+`DocumentStore.save_chapter` re-syncs `ChapterFrontmatter.title` and the
+manifest's `ChapterRef.title` from it on every save (manual edit, WYSIWYG,
+or engine draft/iterate), so renaming a chapter is just editing its
+heading, and the card header never shows a title that's out of sync with
+the heading actually in the body. The read-only chapter view strips that
+same leading heading before rendering (the card header already shows the
+now-synced title) — `stripLeadingHeading` in `markdown.js` — while the
+WYSIWYG editor still shows/lets you edit it directly, since that's the
+mechanism for renaming. Chapter cards pulse with a soft glow and show an
+animated "Writing" badge while streaming, so the mock's chunk-by-chunk
+drafting reads as an in-progress AI write rather than an instant paste —
+built to keep working the same way once real engine streaming replaces
+the mock.
 
 **Edit** opens a WYSIWYG editor (`docstudio/web/js/wysiwyg.js`) — a
 contenteditable region with a Bold/Italic/Headings/Lists/Quote/Image toolbar
