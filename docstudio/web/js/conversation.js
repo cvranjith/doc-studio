@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { el, clear, toast } from "./util.js";
+import { el, clear, toast, icon, openModal, closeModal } from "./util.js";
 
 export function renderConversationPane(pane, ctx) {
   clear(pane);
@@ -20,12 +20,15 @@ export function renderConversationPane(pane, ctx) {
   syncScopeDisabled();
 
   const textarea = el("textarea", { placeholder: "Instruction, e.g. “Draft the document”, “Generate outline”…" });
-  const sendBtn = el("button", { class: "primary send-btn", text: "➤", title: "Send" });
-  const interviewBtn = el("button", {
-    text: "Interview me",
-    title: "Walk through the doc-type's clarification questions one at a time",
-    onclick: () => runInstruction(ctx, "Interview me", "document"),
-  });
+  const sendBtn = el("button", { class: "primary send-btn", title: "Send" }, [icon("paper-plane")]);
+  const interviewBtn = el(
+    "button",
+    {
+      title: "Walk through the doc-type's clarification questions one at a time, in a focused dialog",
+      onclick: () => openInterviewModal(ctx),
+    },
+    [icon("list-check"), " Interview me"]
+  );
 
   const box = el("div", { class: "instruct-box" }, [
     el("div", { class: "scope-row" }, [scopeLabel, scopeSelect]),
@@ -68,7 +71,7 @@ function addLogEntry(ctx, cls, text) {
     cls === "log"
       ? el("div", { class: `msg ${cls}`, text })
       : el("div", { class: `msg ${cls}` }, [
-          el("span", { class: "msg-avatar", text: cls === "user" ? "🧑" : "🤖" }),
+          el("span", { class: "msg-avatar" }, [icon(cls === "user" ? "user" : "robot")]),
           el("div", { class: "msg-bubble", text }),
         ]);
   ctx.conversationLog.appendChild(bubble);
@@ -79,7 +82,7 @@ function addLogEntry(ctx, cls, text) {
 function addTypingIndicator(ctx) {
   if (!ctx.conversationLog) return null;
   const bubble = el("div", { class: "msg engine typing-indicator" }, [
-    el("span", { class: "msg-avatar", text: "🤖" }),
+    el("span", { class: "msg-avatar" }, [icon("robot")]),
     el("div", { class: "msg-bubble" }, [el("span", { class: "ai-dots" }, [el("span", {}), el("span", {}), el("span", {})])]),
   ]);
   ctx.conversationLog.appendChild(bubble);
@@ -141,12 +144,14 @@ function handleEvent(ctx, event, instruction, scope) {
   }
 }
 
-function renderClarificationCard(ctx, clarification, originalInstruction, scope) {
+// Shared by the inline conversation-log clarify-card and the "Interview me"
+// modal — builds the question/choices/free-text/Answer/Defer UI, delegating
+// what happens on submit to the caller.
+function buildClarificationForm(clarification, { onAnswer, onDefer }) {
   const card = el("div", { class: "clarify-card" });
   card.appendChild(el("div", { class: "reason", text: clarification.reason || "Clarification needed" }));
   card.appendChild(el("div", { class: "question", text: clarification.question }));
 
-  let selectedChoice = null;
   const freeText = el("input", { type: "text", placeholder: "Free-text answer…" });
 
   if (clarification.choices && clarification.choices.length) {
@@ -154,7 +159,6 @@ function renderClarificationCard(ctx, clarification, originalInstruction, scope)
     for (const choice of clarification.choices) {
       const chip = el("span", { class: "chip", text: choice });
       chip.addEventListener("click", () => {
-        selectedChoice = choice;
         freeText.value = choice;
         card.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
         chip.classList.add("selected");
@@ -175,20 +179,36 @@ function renderClarificationCard(ctx, clarification, originalInstruction, scope)
         toast("Enter or pick an answer first", true);
         return;
       }
-      await submitClarification(ctx, clarification, answer, false, originalInstruction, scope);
-      card.remove();
+      answerBtn.disabled = true;
+      deferBtn.disabled = true;
+      await onAnswer(answer);
     },
   });
   const deferBtn = el("button", {
     class: "small",
     text: "Defer",
     onclick: async () => {
-      await submitClarification(ctx, clarification, null, true, originalInstruction, scope);
-      card.remove();
+      answerBtn.disabled = true;
+      deferBtn.disabled = true;
+      await onDefer();
     },
   });
 
   card.appendChild(el("div", { class: "buttons" }, [deferBtn, answerBtn]));
+  return card;
+}
+
+function renderClarificationCard(ctx, clarification, originalInstruction, scope) {
+  const card = buildClarificationForm(clarification, {
+    onAnswer: async (answer) => {
+      await submitClarification(ctx, clarification, answer, false, originalInstruction, scope);
+      card.remove();
+    },
+    onDefer: async () => {
+      await submitClarification(ctx, clarification, null, true, originalInstruction, scope);
+      card.remove();
+    },
+  });
   ctx.conversationLog.appendChild(card);
   ctx.conversationLog.scrollTop = ctx.conversationLog.scrollHeight;
 }
@@ -210,4 +230,80 @@ async function submitClarification(ctx, clarification, answer, defer, originalIn
   } catch (e) {
     toast(e.message, true);
   }
+}
+
+// ---------------------------------------------------------------------------
+// "Interview me" modal — walks the doc-type's interview bank one question
+// at a time in a focused dialog, instead of inline in the chat log.
+// ---------------------------------------------------------------------------
+
+export function openInterviewModal(ctx) {
+  const host = el("div", { class: "interview-modal" });
+  openModal(host);
+  runInterviewStep(ctx, host);
+}
+
+async function runInterviewStep(ctx, host) {
+  clear(host);
+  host.appendChild(el("h3", { text: "Interview Me" }));
+  const statusText = el("span", { text: "Thinking" });
+  host.appendChild(el("div", { class: "empty-hint interview-status" }, [statusText, el("span", { class: "ai-dots" }, [el("span", {}), el("span", {}), el("span", {})])]));
+
+  let questionShown = false;
+  try {
+    await api.instruct(
+      ctx.slug,
+      { instruction: "Interview me", scope: "document", checked_source_ids: Array.from(ctx.checkedSourceIds || []) },
+      (event) => {
+        if (event.type === "clarification") {
+          questionShown = true;
+          showInterviewQuestion(ctx, host, event);
+        } else if (event.type === "log" && !questionShown) {
+          statusText.textContent = event.message;
+        } else if (event.type === "done" && !questionShown) {
+          clear(host);
+          host.appendChild(el("h3", { text: "Interview Me" }));
+          host.appendChild(el("div", { class: "empty-hint", text: "No open interview questions remain — you're all caught up." }));
+          host.appendChild(el("div", { class: "buttons" }, [el("button", { class: "primary", text: "Close", onclick: closeModal })]));
+        }
+      }
+    );
+    if (questionShown) await ctx.refreshManifest();
+  } catch (e) {
+    toast(e.message, true);
+    closeModal();
+  }
+}
+
+function showInterviewQuestion(ctx, host, clarification) {
+  clear(host);
+  host.appendChild(el("h3", { text: "Interview Me" }));
+  host.appendChild(
+    buildClarificationForm(clarification, {
+      onAnswer: async (answer) => {
+        await api.clarify(ctx.slug, {
+          question_id: clarification.question_id,
+          question: clarification.question,
+          chapter: clarification.blocking_chapter,
+          reason: clarification.reason,
+          answer,
+          defer: false,
+        });
+        await runInterviewStep(ctx, host);
+      },
+      onDefer: async () => {
+        await api.clarify(ctx.slug, {
+          question_id: clarification.question_id,
+          question: clarification.question,
+          chapter: clarification.blocking_chapter,
+          reason: clarification.reason,
+          answer: null,
+          defer: true,
+        });
+        await ctx.refreshManifest();
+        await runInterviewStep(ctx, host);
+      },
+    })
+  );
+  host.appendChild(el("div", { class: "buttons" }, [el("button", { text: "Close for now", onclick: closeModal })]));
 }

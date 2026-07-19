@@ -24,8 +24,9 @@ python3.11 -m venv .venv
 Then open the printed URL (default `http://127.0.0.1:8077` — chosen to
 avoid colliding with other local dev servers commonly bound to 8000/8080;
 change `port` in `config.yaml` if 8077 is taken on your machine). No
-internet access is required at runtime — `marked.js`, `mermaid.js`, and
-`turndown.js` are vendored locally under `docstudio/web/vendor/`.
+internet access is required at runtime — `marked.js`, `mermaid.js`,
+`turndown.js`, and Font Awesome Free (icons) are vendored locally under
+`docstudio/web/vendor/`.
 
 On first run, `workspace/` is seeded automatically with the 3 doc-type
 templates, a placeholder corporate Word template, and one example document
@@ -219,19 +220,30 @@ signature stays the same, so nothing else in the app needs to change.
 
 ## UI layout
 
-Inside a document, the left pane is tabbed (**Sources** / **Chapters**) and
-collapsible; the **Chapters** tab is the drafting-order source of truth — it
-supports drag-to-reorder, delete, and adding a chapter manually (title only;
-content comes from an instruction afterwards). Clicking a chapter there
-*focuses* the middle pane on just that chapter (click again, or "Show all
-chapters", to go back to the full document). The right pane holds the single
-Conversation/instruction box, styled as a chat panel (avatar bubbles, an
-animated "typing" indicator while an instruction is in flight), also
-collapsible — its scope selector follows whichever chapter is focused, so
-**Iterate** on a chapter card just focuses it and lets you type into the
-right pane rather than opening an inline box per chapter. **Interview me**
-there triggers the engine's interview-bank walk explicitly, independent of
-drafting.
+Inside a document, the left pane is tabbed (**Sources** / **Chapters**,
+Chapters active by default) and collapsible; the **Chapters** tab is the
+drafting-order source of truth — it supports drag-to-reorder, delete, and
+adding a chapter manually (title only; content comes from an instruction
+afterwards). Clicking a chapter there *focuses* the middle pane on just
+that chapter (click again, or "Show all chapters", to go back to the full
+document). The right pane holds the single Conversation/instruction box,
+styled as a chat panel (avatar bubbles, an animated "typing" indicator
+while an instruction is in flight), also collapsible — its scope selector
+follows whichever chapter is focused, so **Iterate** on a chapter card just
+focuses it and lets you type into the right pane rather than opening an
+inline box per chapter. **Interview me** opens a focused modal that walks
+the engine's interview bank one question at a time (reusing the same
+question/choices/free-text form the inline clarification cards use — see
+`buildClarificationForm` in `conversation.js`) rather than interleaving
+into the chat log.
+
+Icons throughout (chapter card toolbar, pane collapse/tab controls, chat
+avatars, the WYSIWYG toolbar) are Font Awesome, vendored locally — not
+Unicode/emoji glyphs, which render inconsistently across platforms. The
+chapter card toolbar sits directly under the header instead of at the
+bottom, and is disabled as a whole while that chapter's editor is open
+(`setToolbarDisabled` in `document.js`), closing a real bug where clicking
+Edit more than once opened stacked duplicate editors on the same chapter.
 
 Chapter cards are elevated white cards on a pale document-pane background,
 with a compact icon toolbar (Iterate/Regenerate, Edit, Mark reviewed, Mark

@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, SYSTEM_TEMPLATE_VARIABLES, variableFields } from "./util.js";
+import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, icon, SYSTEM_TEMPLATE_VARIABLES, variableFields } from "./util.js";
 import { renderInto, stripLeadingHeading, escapeHtml } from "./markdown.js";
 import { renderSourcesPane } from "./sources.js";
 import { renderConversationPane, runInstruction } from "./conversation.js";
@@ -25,7 +25,7 @@ export async function renderDocumentView(container, slug) {
   clear(container);
 
   if (!uiState.has(slug)) {
-    uiState.set(slug, { leftCollapsed: false, rightCollapsed: false, activeLeftTab: "sources", focusedChapterFile: null });
+    uiState.set(slug, { leftCollapsed: false, rightCollapsed: false, activeLeftTab: "chapters", focusedChapterFile: null });
   }
   const prefs = uiState.get(slug);
   if (!data.manifest.chapters.some((c) => c.file === prefs.focusedChapterFile)) {
@@ -84,15 +84,17 @@ export async function renderDocumentView(container, slug) {
   const leftBody = el("div", { class: "pane-body" });
   const tabSourcesBtn = el("button", { text: "Sources", onclick: () => { prefs.activeLeftTab = "sources"; renderLeftTab(); } });
   const tabChaptersBtn = el("button", { text: "Chapters", onclick: () => { prefs.activeLeftTab = "chapters"; renderLeftTab(); } });
-  const leftCollapseBtn = el("button", {
-    class: "collapse-btn",
-    text: prefs.leftCollapsed ? "»" : "«",
-    onclick: () => {
-      prefs.leftCollapsed = !prefs.leftCollapsed;
-      leftCollapseBtn.textContent = prefs.leftCollapsed ? "»" : "«";
-      applyCollapseState();
-    },
+  const leftCollapseBtn = el("button", { class: "collapse-btn" });
+  function updateLeftCollapseIcon() {
+    clear(leftCollapseBtn);
+    leftCollapseBtn.appendChild(icon(prefs.leftCollapsed ? "chevron-right" : "chevron-left"));
+  }
+  leftCollapseBtn.addEventListener("click", () => {
+    prefs.leftCollapsed = !prefs.leftCollapsed;
+    updateLeftCollapseIcon();
+    applyCollapseState();
   });
+  updateLeftCollapseIcon();
   leftChrome.appendChild(el("div", { class: "pane-tabs" }, [tabSourcesBtn, tabChaptersBtn]));
   leftChrome.appendChild(leftCollapseBtn);
   leftPane.appendChild(leftChrome);
@@ -118,15 +120,17 @@ export async function renderDocumentView(container, slug) {
 
   const rightChrome = el("div", { class: "pane-chrome" });
   const rightBody = el("div", { class: "pane-body" });
-  const rightCollapseBtn = el("button", {
-    class: "collapse-btn",
-    text: prefs.rightCollapsed ? "«" : "»",
-    onclick: () => {
-      prefs.rightCollapsed = !prefs.rightCollapsed;
-      rightCollapseBtn.textContent = prefs.rightCollapsed ? "«" : "»";
-      applyCollapseState();
-    },
+  const rightCollapseBtn = el("button", { class: "collapse-btn" });
+  function updateRightCollapseIcon() {
+    clear(rightCollapseBtn);
+    rightCollapseBtn.appendChild(icon(prefs.rightCollapsed ? "chevron-left" : "chevron-right"));
+  }
+  rightCollapseBtn.addEventListener("click", () => {
+    prefs.rightCollapsed = !prefs.rightCollapsed;
+    updateRightCollapseIcon();
+    applyCollapseState();
   });
+  updateRightCollapseIcon();
   rightChrome.appendChild(el("div", { class: "pane-title", text: "Conversation" }));
   rightChrome.appendChild(rightCollapseBtn);
   rightPane.appendChild(rightChrome);
@@ -312,19 +316,18 @@ function renderChaptersTab(host, ctx) {
           onclick: () => ctx.focusChapter(ctx.prefs.focusedChapterFile === c.file ? null : c.file),
         },
         [
-          el("span", { class: "drag-handle", text: "⋮⋮" }),
+          el("span", { class: "drag-handle" }, [icon("grip-vertical")]),
           el("span", { class: "row-title", text: c.title }),
           c.open_questions ? el("span", { class: "badge oq", text: String(c.open_questions) }) : null,
           el("span", { class: `badge status-${c.status}`, text: c.status }),
           el("button", {
-            class: "small danger",
-            text: "×",
+            class: "icon-btn danger small",
             title: "Delete chapter",
             onclick: (e) => {
               e.stopPropagation();
               deleteChapter(ctx, c.file);
             },
-          }),
+          }, [icon("trash")]),
         ]
       );
       row.addEventListener("dragstart", (e) => {
@@ -362,7 +365,6 @@ function renderChaptersTab(host, ctx) {
   const addInput = el("input", { type: "text", placeholder: "New chapter title…" });
   const addBtn = el("button", {
     class: "primary small",
-    text: "+ Add",
     onclick: async () => {
       const title = addInput.value.trim();
       if (!title) return;
@@ -374,7 +376,7 @@ function renderChaptersTab(host, ctx) {
         toast(e.message, true);
       }
     },
-  });
+  }, [icon("plus"), " Add"]);
   host.appendChild(el("div", { class: "add-chapter-row" }, [addInput, addBtn]));
 }
 
@@ -418,8 +420,8 @@ async function renderChapters(pane, ctx) {
   }
 }
 
-function iconButton(icon, title, onclick, extraClass) {
-  return el("button", { class: `icon-btn${extraClass ? " " + extraClass : ""}`, title, text: icon, onclick });
+function iconButton(iconName, title, onclick, extraClass) {
+  return el("button", { class: `icon-btn${extraClass ? " " + extraClass : ""}`, title, type: "button", onclick }, [icon(iconName)]);
 }
 
 function buildChapterCard(ctx, chapterRef) {
@@ -438,25 +440,34 @@ function buildChapterCard(ctx, chapterRef) {
   ]);
 
   const toolbar = el("div", { class: "chapter-toolbar" });
+  const toolbarButtons = [];
+  function addToolbarBtn(btn) {
+    toolbarButtons.push(btn);
+    toolbar.appendChild(btn);
+    return btn;
+  }
+  function setToolbarDisabled(disabled) {
+    toolbarButtons.forEach((b) => (b.disabled = disabled));
+  }
+
   if (chapterRef.derived) {
-    toolbar.appendChild(
-      iconButton("↻", "Refresh from current chapters", () =>
+    addToolbarBtn(
+      iconButton("rotate", "Refresh from current chapters", () =>
         runInstruction(ctx, "Refresh the glossary from the current chapters.", chapterRef.file)
       )
     );
   } else {
-    toolbar.appendChild(
-      iconButton("💬", "Iterate — focus this chapter and instruct on the right", () => ctx.focusChapter(chapterRef.file))
+    addToolbarBtn(
+      iconButton("comment-dots", "Iterate — focus this chapter and instruct on the right", () => ctx.focusChapter(chapterRef.file))
     );
-    toolbar.appendChild(
-      iconButton("↻", "Regenerate from scratch", () => runInstruction(ctx, "Regenerate this chapter from scratch.", chapterRef.file))
+    addToolbarBtn(
+      iconButton("rotate", "Regenerate from scratch", () => runInstruction(ctx, "Regenerate this chapter from scratch.", chapterRef.file))
     );
   }
-  const editBtn = iconButton("✎", "Edit", () => openEditor(ctx, chapterRef, bodyEl));
-  toolbar.appendChild(editBtn);
-  toolbar.appendChild(iconButton("👁", "Mark reviewed", () => markStatus(ctx, chapterRef.file, "reviewed")));
-  toolbar.appendChild(iconButton("✓", "Mark final", () => markStatus(ctx, chapterRef.file, "final"), "primary"));
-  toolbar.appendChild(iconButton("🗑", "Delete chapter", () => deleteChapter(ctx, chapterRef.file), "danger"));
+  addToolbarBtn(iconButton("pen", "Edit", () => openEditor(ctx, chapterRef, bodyEl, setToolbarDisabled)));
+  addToolbarBtn(iconButton("eye", "Mark reviewed", () => markStatus(ctx, chapterRef.file, "reviewed")));
+  addToolbarBtn(iconButton("check", "Mark final", () => markStatus(ctx, chapterRef.file, "final"), "primary"));
+  addToolbarBtn(iconButton("trash", "Delete chapter", () => deleteChapter(ctx, chapterRef.file), "danger"));
 
   const bodyEl = el("div", { class: "chapter-body markdown-body" });
 
@@ -523,44 +534,60 @@ async function markStatus(ctx, file, status) {
   }
 }
 
-function openEditor(ctx, chapterRef, bodyEl) {
-  api.getChapter(ctx.slug, chapterRef.file).then((chapter) => {
-    const editor = createWysiwygEditor(ctx.slug, chapter.body);
+function openEditor(ctx, chapterRef, bodyEl, setToolbarDisabled) {
+  // Disable synchronously, before the async fetch below, so a second click
+  // in that window can't open a duplicate editor on the same chapter.
+  setToolbarDisabled(true);
 
-    const controls = el("div", { class: "actions" }, [
-      el("button", {
-        text: "Cancel",
-        onclick: async () => {
-          editor.element.remove();
-          controls.remove();
-          renderInto(bodyEl, stripLeadingHeading(chapter.body), ctx.slug);
-          bodyEl.style.display = "";
-        },
-      }),
-      el("button", {
-        class: "primary",
-        text: "Save",
-        onclick: async () => {
-          try {
-            const updated = await api.saveChapter(ctx.slug, chapterRef.file, { body: editor.getMarkdown() });
+  function closeEditor() {
+    setToolbarDisabled(false);
+  }
+
+  api
+    .getChapter(ctx.slug, chapterRef.file)
+    .then((chapter) => {
+      const editor = createWysiwygEditor(ctx.slug, chapter.body);
+
+      const controls = el("div", { class: "actions" }, [
+        el("button", {
+          text: "Cancel",
+          onclick: async () => {
             editor.element.remove();
             controls.remove();
-            renderInto(bodyEl, stripLeadingHeading(updated.body), ctx.slug);
+            renderInto(bodyEl, stripLeadingHeading(chapter.body), ctx.slug);
             bodyEl.style.display = "";
-            toast("Chapter saved");
-            await ctx.refreshManifest();
-          } catch (e) {
-            toast(e.message, true);
-          }
-        },
-      }),
-    ]);
+            closeEditor();
+          },
+        }),
+        el("button", {
+          class: "primary",
+          text: "Save",
+          onclick: async () => {
+            try {
+              const updated = await api.saveChapter(ctx.slug, chapterRef.file, { body: editor.getMarkdown() });
+              editor.element.remove();
+              controls.remove();
+              renderInto(bodyEl, stripLeadingHeading(updated.body), ctx.slug);
+              bodyEl.style.display = "";
+              toast("Chapter saved");
+              await ctx.refreshManifest();
+              closeEditor();
+            } catch (e) {
+              toast(e.message, true);
+            }
+          },
+        }),
+      ]);
 
-    bodyEl.style.display = "none";
-    bodyEl.insertAdjacentElement("afterend", controls);
-    bodyEl.insertAdjacentElement("afterend", editor.element);
-    editor.focus();
-  });
+      bodyEl.style.display = "none";
+      bodyEl.insertAdjacentElement("afterend", controls);
+      bodyEl.insertAdjacentElement("afterend", editor.element);
+      editor.focus();
+    })
+    .catch((e) => {
+      toast(e.message, true);
+      closeEditor();
+    });
 }
 
 // ---------------------------------------------------------------------------

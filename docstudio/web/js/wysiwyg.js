@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { el, toast } from "./util.js";
+import { el, toast, icon } from "./util.js";
 import { markdownToEditableHtml, htmlToMarkdown } from "./markdown.js";
 
 // A rich-text chapter editor backed by markdown storage: a contenteditable
@@ -45,18 +45,23 @@ export function createWysiwygEditor(slug, initialMarkdown) {
 
   // mousedown+preventDefault (not click) so the toolbar button never steals
   // focus away from the contenteditable — losing focus loses the selection
-  // execCommand needs to act on.
-  function toolbarButton(label, title, onAction) {
-    return el("button", {
-      type: "button",
-      class: "wys-btn",
-      text: label,
-      title,
-      onmousedown: (e) => {
-        e.preventDefault();
-        onAction();
+  // execCommand needs to act on. `content` is either an icon() node or a
+  // plain text label (used for H1/H2/H3, which read better as letters than
+  // any icon glyph).
+  function toolbarButton(content, title, onAction) {
+    return el(
+      "button",
+      {
+        type: "button",
+        class: "wys-btn",
+        title,
+        onmousedown: (e) => {
+          e.preventDefault();
+          onAction();
+        },
       },
-    });
+      [content]
+    );
   }
 
   const imageInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/gif,image/webp", style: "display:none" });
@@ -75,36 +80,49 @@ export function createWysiwygEditor(slug, initialMarkdown) {
     }
   }
 
-  const sourceToggleBtn = toolbarButton("</> Source", "Switch to raw markdown — needed for tables", () => toggleSourceMode());
+  const sourceToggleLabel = el("span", { text: " Source" });
+  const sourceToggleBtn = el(
+    "button",
+    {
+      type: "button",
+      class: "wys-btn wys-btn-wide",
+      title: "Switch to raw markdown — needed for tables",
+      onmousedown: (e) => {
+        e.preventDefault();
+        toggleSourceMode();
+      },
+    },
+    [icon("code"), sourceToggleLabel]
+  );
 
   function toggleSourceMode() {
     if (!sourceMode) {
       sourceArea.value = htmlToMarkdown(editable.innerHTML, slug);
       editable.style.display = "none";
       sourceArea.style.display = "";
-      sourceToggleBtn.textContent = "Rich Text";
+      sourceToggleLabel.textContent = " Rich Text";
       sourceToggleBtn.classList.add("active");
     } else {
       editable.innerHTML = markdownToEditableHtml(sourceArea.value, slug);
       editable.style.display = "";
       sourceArea.style.display = "none";
-      sourceToggleBtn.textContent = "</> Source";
+      sourceToggleLabel.textContent = " Source";
       sourceToggleBtn.classList.remove("active");
     }
     sourceMode = !sourceMode;
   }
 
   const toolbar = el("div", { class: "wys-toolbar" }, [
-    toolbarButton("B", "Bold", () => cmd("bold")),
-    toolbarButton("I", "Italic", () => cmd("italic")),
+    toolbarButton(icon("bold"), "Bold", () => cmd("bold")),
+    toolbarButton(icon("italic"), "Italic", () => cmd("italic")),
     toolbarButton("H1", "Heading 1", () => cmd("formatBlock", "H1")),
     toolbarButton("H2", "Heading 2", () => cmd("formatBlock", "H2")),
     toolbarButton("H3", "Heading 3", () => cmd("formatBlock", "H3")),
-    toolbarButton("¶", "Paragraph", () => cmd("formatBlock", "P")),
-    toolbarButton("•", "Bullet list", () => cmd("insertUnorderedList")),
-    toolbarButton("1.", "Numbered list", () => cmd("insertOrderedList")),
-    toolbarButton("❝", "Quote", () => cmd("formatBlock", "BLOCKQUOTE")),
-    toolbarButton("🖼", "Insert image", () => {
+    toolbarButton(icon("paragraph"), "Paragraph", () => cmd("formatBlock", "P")),
+    toolbarButton(icon("list-ul"), "Bullet list", () => cmd("insertUnorderedList")),
+    toolbarButton(icon("list-ol"), "Numbered list", () => cmd("insertOrderedList")),
+    toolbarButton(icon("quote-left"), "Quote", () => cmd("formatBlock", "BLOCKQUOTE")),
+    toolbarButton(icon("image"), "Insert image", () => {
       saveSelection();
       imageInput.click();
     }),

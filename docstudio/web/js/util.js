@@ -54,6 +54,12 @@ export function statusBadge(status) {
   return el("span", { class: `badge status-${status}`, text: status });
 }
 
+// Font Awesome Free (vendored locally, docstudio/web/vendor/fontawesome/).
+// style: "solid" | "regular"; name is the icon name without the "fa-" prefix.
+export function icon(name, style = "solid") {
+  return el("i", { class: `fa-${style} fa-${name}`, "aria-hidden": "true" });
+}
+
 // Word-template {VARIABLE} tokens computed automatically at export time
 // (creation date, export filename) — never shown in a fill-in form.
 // Mirrors docstudio/formatter/templated.py::SYSTEM_VARIABLES.
