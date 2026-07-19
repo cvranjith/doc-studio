@@ -16,9 +16,52 @@ export function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-export async function renderInto(container, text) {
+// Chapter markdown references images as relative "assets/<filename>" paths
+// (matching the filesystem contract / Word export's own path resolution).
+// For on-screen display that needs to become an actual fetchable URL.
+export function assetApiUrl(slug, filename) {
+  return `/api/documents/${slug}/assets/${filename}`;
+}
+
+function rewriteAssetImages(container, slug) {
+  if (!slug) return;
+  container.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    if (src.startsWith("assets/")) {
+      img.setAttribute("src", assetApiUrl(slug, src.slice("assets/".length)));
+    }
+  });
+}
+
+export async function renderInto(container, text, slug) {
   container.innerHTML = renderMarkdown(text);
+  rewriteAssetImages(container, slug);
   await renderMermaidBlocks(container);
+}
+
+// Synchronous variant (no Mermaid pass) for populating an editable region —
+// Mermaid's DOM rewriting would fight with the user editing it live.
+export function markdownToEditableHtml(text, slug) {
+  const div = document.createElement("div");
+  div.innerHTML = renderMarkdown(text);
+  rewriteAssetImages(div, slug);
+  return div.innerHTML;
+}
+
+export function htmlToMarkdown(html, slug) {
+  if (!window.TurndownService) return html;
+  const td = new window.TurndownService({ headingStyle: "atx", bulletListMarker: "-", hr: "---" });
+  const prefix = slug ? assetApiUrl(slug, "") : null;
+  td.addRule("chapterImage", {
+    filter: "img",
+    replacement: (_content, node) => {
+      const src = node.getAttribute("src") || "";
+      const alt = node.getAttribute("alt") || "";
+      const relSrc = prefix && src.startsWith(prefix) ? `assets/${src.slice(prefix.length)}` : src;
+      return `![${alt}](${relSrc})`;
+    },
+  });
+  return td.turndown(html);
 }
 
 async function renderMermaidBlocks(container) {

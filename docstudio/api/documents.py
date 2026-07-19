@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+import mimetypes
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from docstudio.store.documents import DocumentNotFound
 
 router = APIRouter(tags=["documents"])
+
+ASSET_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 def _state(request: Request):
@@ -179,3 +186,40 @@ def save_chapter(slug: str, file: str, payload: SaveChapterBody, request: Reques
         "last_generated": updated.frontmatter.last_generated,
         "body": updated.body,
     }
+
+
+@router.post("/documents/{slug}/assets")
+async def upload_asset(slug: str, request: Request, file: UploadFile):
+    """Pasted/inserted chapter images from the WYSIWYG editor. Stored under
+    assets/ and referenced from chapter markdown as a relative
+    ``assets/<filename>`` path (see docstudio/web/js/markdown.js for how
+    that's rewritten to this endpoint's URL for on-screen display, and
+    TemplatedDocFormatter for how it's embedded into Word exports).
+    """
+    state = _state(request)
+    try:
+        state.documents.get_manifest(slug)
+    except DocumentNotFound:
+        raise HTTPException(404, "document not found")
+
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in ASSET_EXTS:
+        raise HTTPException(400, f"unsupported image type: {suffix or '(none)'}")
+
+    assets_dir = state.documents.assets_dir(slug)
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex[:12]}{suffix}"
+    data = await file.read()
+    (assets_dir / filename).write_bytes(data)
+
+    return {"filename": filename, "url": f"/api/documents/{slug}/assets/{filename}"}
+
+
+@router.get("/documents/{slug}/assets/{filename}")
+def get_asset(slug: str, filename: str, request: Request):
+    state = _state(request)
+    path = state.documents.assets_dir(slug) / Path(filename).name
+    if not path.exists():
+        raise HTTPException(404, "asset not found")
+    media_type = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    return FileResponse(str(path), media_type=media_type)

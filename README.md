@@ -24,8 +24,8 @@ python3.11 -m venv .venv
 Then open the printed URL (default `http://127.0.0.1:8077` — chosen to
 avoid colliding with other local dev servers commonly bound to 8000/8080;
 change `port` in `config.yaml` if 8077 is taken on your machine). No
-internet access is required at runtime — `marked.js` and
-`mermaid.js` are vendored locally under `docstudio/web/vendor/`.
+internet access is required at runtime — `marked.js`, `mermaid.js`, and
+`turndown.js` are vendored locally under `docstudio/web/vendor/`.
 
 On first run, `workspace/` is seeded automatically with the 3 doc-type
 templates, a placeholder corporate Word template, and one example document
@@ -231,6 +231,24 @@ it and lets you type into the right pane rather than opening an inline box
 per chapter. **Interview me** there triggers the engine's interview-bank walk
 explicitly, independent of drafting.
 
+**Edit** opens a WYSIWYG editor (`docstudio/web/js/wysiwyg.js`) — a
+contenteditable region with a Bold/Italic/Headings/Lists/Quote/Image toolbar
+— rather than a raw markdown textarea, but the storage format underneath is
+still plain markdown: `marked.js` renders markdown → HTML on load,
+vendored `turndown.js` converts HTML → markdown on save. Pasting or
+inserting an image uploads it to the document's `assets/` folder
+(`POST /api/documents/{slug}/assets`) and the editor references it as a
+relative `assets/<file>` markdown path — displayed on screen by rewriting
+that to the assets API URL, and embedded as a real inline picture by
+`TemplatedDocFormatter` at export time (inline images work even when typed
+immediately after other text with no line break, not just on their own
+line). A **`</> Source`** toggle drops to the old raw-markdown view for
+anything the WYSIWYG toolbar can't faithfully round-trip, notably tables.
+Inline `**bold**`/`_italic_`/`` `code` `` markdown (exactly what
+`turndown.js` emits) is parsed into real Word run formatting in the
+export, not left as literal asterisks — see `_apply_inline_markdown` in
+`docstudio/formatter/templated.py`.
+
 ## API
 
 See `docstudio/api/*.py`; routes closely follow the sketch in
@@ -238,10 +256,12 @@ See `docstudio/api/*.py`; routes closely follow the sketch in
 original sketch: `PATCH`/`DELETE /api/documents/{slug}` (editable
 title/status/variables, permanent delete-from-disk with a confirm step in
 the UI), `PATCH .../sources/{id}` (label/mode edits), `POST`/`DELETE`/`POST
-.../reorder` on `.../chapters` (add/delete/reorder), and `GET`/`PUT
-/api/templates/doc_types/{doc_type}` + `POST .../word_template` for the
-template editor (the `GET` also returns a live-scanned `template_variables`
-list, per the DocFormatter section above).
+.../reorder` on `.../chapters` (add/delete/reorder), `POST`/`GET
+.../assets`/`.../assets/{filename}` (WYSIWYG editor image upload/serve),
+and `GET`/`PUT /api/templates/doc_types/{doc_type}` + `POST
+.../word_template` for the template editor (the `GET` also returns a
+live-scanned `template_variables` list, per the DocFormatter section
+above).
 
 ## Known prototype limitations
 

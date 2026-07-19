@@ -34,6 +34,13 @@ export const api = {
   deleteChapter: (slug, file) => req("DELETE", `/documents/${slug}/chapters/${file}`),
   reorderChapters: (slug, order) => req("POST", `/documents/${slug}/chapters/reorder`, { order }),
 
+  uploadAsset: async (slug, file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return req("POST", `/documents/${slug}/assets`, form, true);
+  },
+  assetUrl: (slug, filename) => `${BASE}/documents/${slug}/assets/${filename}`,
+
   uploadSource: async (slug, file) => {
     const form = new FormData();
     form.append("file", file);

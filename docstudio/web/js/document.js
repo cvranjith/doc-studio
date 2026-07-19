@@ -3,6 +3,7 @@ import { el, clear, fmtDate, statusBadge, openModal, closeModal, toast, SYSTEM_T
 import { renderInto } from "./markdown.js";
 import { renderSourcesPane } from "./sources.js";
 import { renderConversationPane, runInstruction } from "./conversation.js";
+import { createWysiwygEditor } from "./wysiwyg.js";
 
 // Per-document UI preferences (collapse state, active left tab, focused
 // chapter) survive a reloadAll() within the same browser session — they are
@@ -434,7 +435,7 @@ function buildChapterCard(ctx, chapterRef) {
 
   api
     .getChapter(ctx.slug, chapterRef.file)
-    .then((chapter) => renderInto(bodyEl, chapter.body))
+    .then((chapter) => renderInto(bodyEl, chapter.body, ctx.slug))
     .catch(() => {
       bodyEl.textContent = "Failed to load chapter.";
     });
@@ -486,7 +487,7 @@ function buildChapterCard(ctx, chapterRef) {
     onComplete: (fullMarkdown) => {
       streaming = false;
       bodyEl.classList.remove("streaming");
-      renderInto(bodyEl, fullMarkdown);
+      renderInto(bodyEl, fullMarkdown, ctx.slug);
     },
     setStatus: (status) => {
       statusPill.textContent = status;
@@ -516,19 +517,15 @@ async function markStatus(ctx, file, status) {
 
 function openEditor(ctx, chapterRef, bodyEl) {
   api.getChapter(ctx.slug, chapterRef.file).then((chapter) => {
-    const textarea = el("textarea", { text: chapter.body });
-    const preview = el("div", { class: "preview markdown-body" });
-    renderInto(preview, chapter.body);
-    textarea.addEventListener("input", () => renderInto(preview, textarea.value));
+    const editor = createWysiwygEditor(ctx.slug, chapter.body);
 
-    const grid = el("div", { class: "editor-grid" }, [textarea, preview]);
     const controls = el("div", { class: "actions" }, [
       el("button", {
         text: "Cancel",
         onclick: async () => {
-          grid.remove();
+          editor.element.remove();
           controls.remove();
-          renderInto(bodyEl, chapter.body);
+          renderInto(bodyEl, chapter.body, ctx.slug);
           bodyEl.style.display = "";
         },
       }),
@@ -537,10 +534,10 @@ function openEditor(ctx, chapterRef, bodyEl) {
         text: "Save",
         onclick: async () => {
           try {
-            const updated = await api.saveChapter(ctx.slug, chapterRef.file, { body: textarea.value });
-            grid.remove();
+            const updated = await api.saveChapter(ctx.slug, chapterRef.file, { body: editor.getMarkdown() });
+            editor.element.remove();
             controls.remove();
-            renderInto(bodyEl, updated.body);
+            renderInto(bodyEl, updated.body, ctx.slug);
             bodyEl.style.display = "";
             toast("Chapter saved");
             await ctx.refreshManifest();
@@ -553,7 +550,8 @@ function openEditor(ctx, chapterRef, bodyEl) {
 
     bodyEl.style.display = "none";
     bodyEl.insertAdjacentElement("afterend", controls);
-    bodyEl.insertAdjacentElement("afterend", grid);
+    bodyEl.insertAdjacentElement("afterend", editor.element);
+    editor.focus();
   });
 }
 
@@ -678,7 +676,7 @@ async function showVersionDetail(ctx, version, allVersions) {
     try {
       const chapter = await api.getVersionChapter(ctx.slug, version.version, file);
       const rendered = el("div", { class: "markdown-body" });
-      renderInto(rendered, chapter.body);
+      renderInto(rendered, chapter.body, ctx.slug);
       viewHost.appendChild(el("h4", { text: `v${version.version} (read-only)` }));
       viewHost.appendChild(rendered);
     } catch (e) {
