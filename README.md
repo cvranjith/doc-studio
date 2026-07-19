@@ -72,6 +72,11 @@ build step.
 
 ## The reasoning engine (mocked) and the Word formatter (real)
 
+**Picking this project up to wire in a real engine?** See `HANDOFF.md` —
+it documents the full `ReasoningEngine` contract, the template schema the
+engine should consume, the pause/resume mechanism, approved-but-unbuilt
+contract changes, and a tour of everything else already built.
+
 ### ReasoningEngine (`docstudio/engine/__init__.py`)
 
 ```python
